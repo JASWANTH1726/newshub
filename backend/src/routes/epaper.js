@@ -39,12 +39,18 @@ const TELEGRAM_CHANNELS = {
 
 // ── Direct epaper PDF/image URLs (known working) ─────────────────────────────
 const DIRECT_EPAPER_URLS = {
-  eenadu:            (dd, mm, yyyy) => `https://epaper.eenadu.net/Home/GetAllpages?editionid=1&editiondate=${dd}/${mm}/${yyyy}`,
-  sakshi:            (dd, mm, yyyy) => `https://epaper.sakshi.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
-  andhrajyothy:      (dd, mm, yyyy) => `https://epaper.andhrajyothy.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
-  visalaandhra:      (dd, mm, yyyy) => `https://epaper.visalaandhra.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
-  telangana_today:   (dd, mm, yyyy) => `https://epaper.telanganatoday.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
-  amar_ujala:        (dd, mm, yyyy) => `https://epaper.amarujala.com/svww_index1.php?Iss_dt=${dd}-${mm}-${yyyy}`,
+  eenadu:            (dd, mm, yyyy) => ({ url: `https://epaper.eenadu.net/Home/GetAllpages?editionid=1&editiondate=${dd}/${mm}/${yyyy}` }),
+  sakshi:            (dd, mm, yyyy) => ({ url: `https://epaper.sakshi.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}` }),
+  andhrajyothy:      (dd, mm, yyyy) => ({ url: `https://epaper.andhrajyothy.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}` }),
+  visalaandhra:      (dd, mm, yyyy) => ({ url: `https://epaper.visalaandhra.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}` }),
+  telangana_today:   (dd, mm, yyyy) => ({
+    url: `https://epaper.telanganatoday.com/Home/GetAllpagespost`,
+    opts: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ editionid: 1, editiondate: `${dd}/${mm}/${yyyy}` }),
+    },
+  }),
 };
 
 const PAPER_DISPLAY_NAME = {
@@ -403,29 +409,70 @@ async function fetchViaScraper(paperId, paperName, date) {
 }
 
 // ── Source 1 (moved here): Direct epaper API ─────────────────────────────────
+async function fetchAmarUjalaEpaper(date) {
+  try {
+    const url = 'https://epaper.amarujala.com/';
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const matches = new Set();
+
+    const pageUrls = [...html.matchAll(/https:\/\/epimg\.amarujala\.com\/[0-9\/]+\/(?:dl|hd)\/[0-9]{2}\/hdimage\.jpg\?[^"'\s<>]+/ig)];
+    for (const m of pageUrls) matches.add(m[0]);
+
+    const thumbMatches = [...html.matchAll(/https:\/\/epimg\.amarujala\.com\/[0-9\/]+\/([0-9]{2})\/thumb\.jpg\?[^"'\s<>]+/ig)];
+    for (const m of thumbMatches) matches.add(m[0]);
+
+    const rawJson = html.match(/id="thumb_image_link"\s+data-value="([^"']+)"/i)?.[1];
+    if (rawJson) {
+      try {
+        const unescaped = rawJson.replace(/&quot;/g, '"');
+        const parsed = JSON.parse(unescaped);
+        Object.values(parsed).forEach(page => {
+          if (page && page.image) matches.add(page.image);
+        });
+      } catch {
+        /* ignore parse errors */
+      }
+    }
+
+    if (!matches.size) return null;
+    return { source: 'Amar Ujala Homepage', images: Array.from(matches).slice(0, 12) };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchDirectEpaper(paperId, date) {
+  if (paperId === 'amar_ujala') return fetchAmarUjalaEpaper(date);
   const urlFn = DIRECT_EPAPER_URLS[paperId];
   if (!urlFn) return null;
   try {
     const { dd, mm, yyyy } = parseDateParts(date);
-    const url = urlFn(dd, mm, yyyy);
-    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
+    const config = urlFn(dd, mm, yyyy);
+    const url = typeof config === 'string' ? config : config.url;
+    const opts = { ...(typeof config === 'object' && config.opts ? config.opts : {}), headers: { ...makeHeadersForUrl(url), ...((config.opts && config.opts.headers) || {}) } };
+    const res = await fetchWithRetry(url, opts, 2, 400);
     if (!res.ok) return null;
-    let data = await res.json();
+    let data = await res.text();
+    try { data = JSON.parse(data); } catch { /* if not parseable, keep as text */ }
     if (typeof data === 'string') {
       try { data = JSON.parse(data); } catch { /* ignore invalid string */ }
     }
+
     const pages = Array.isArray(data)
       ? data
       : data && typeof data === 'object'
         ? Object.values(data).flat()
         : [];
     const images = Array.isArray(pages)
-      ? pages.map(p => p.HighResolution || p.PageImage || p.ImageUrl).filter(Boolean)
+      ? pages.map(p => p && (p.HighResolution || p.PageImage || p.ImageUrl || p.highResolution || p.Highresolution || p.HighestResolution || p.HDImage || p.hdimage)).filter(Boolean)
       : [];
     if (!images.length) return null;
     return { source: 'Direct Epaper API', images: images.slice(0, 12) };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // ── Fallback: extract image from article page (og:image or first img) ───────
