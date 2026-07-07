@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const fetch = require('node-fetch');
+const { URL } = require('url');
 
 // ── Verified Telegram public channels ────────────────────────────────────────
 const TELEGRAM_CHANNELS = {
@@ -55,6 +56,36 @@ function parseDateParts(date) {
   };
 }
 
+// ── Helper: fetch with retries and optional headers ──────────────────────────
+async function fetchWithRetry(url, opts = {}, retries = 2, backoff = 500) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      return res;
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise(r => setTimeout(r, backoff * (i + 1)));
+    }
+  }
+}
+
+function makeHeadersForUrl(url) {
+  try {
+    const u = new URL(url);
+    // site-specific referer/user-agent adjustments
+    const host = u.hostname.replace(/^www\./, '');
+    const common = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+    if (host.includes('eenadu')) return { ...common, Referer: 'https://epaper.eenadu.net/' };
+    if (host.includes('sakshi')) return { ...common, Referer: 'https://epaper.sakshi.com/' };
+    if (host.includes('andhrajyothy')) return { ...common, Referer: 'https://epaper.andhrajyothy.com/' };
+    if (host.includes('amarujala')) return { ...common, Referer: 'https://epaper.amarujala.com/' };
+    return common;
+  } catch {
+    return { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' };
+  }
+}
+
 // ── Source 1: Telegram public web preview ────────────────────────────────────
 async function fetchTelegram(channels, date) {
   const { iso } = parseDateParts(date);
@@ -62,20 +93,18 @@ async function fetchTelegram(channels, date) {
 
   for (const channel of channels) {
     try {
-      const res = await fetch(`https://t.me/s/${channel}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        timeout: 8000,
-      });
+      const url = `https://t.me/s/${channel}`;
+      const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
       if (!res.ok) continue;
       const html = await res.text();
 
       const imgs = new Set();
       // background-image style URLs
-      const bgRe = /background-image:url\('(https:\/\/cdn\d*\.telegram[^']+)'\)/g;
+      const bgRe = /background-image:\s*url\(['"]?(https:\/\/cdn\d*\.telegram[^'"\)]+)['"]?\)/g;
       let m;
       while ((m = bgRe.exec(html)) !== null) imgs.add(m[1]);
       // direct img src
-      const srcRe = /<img[^>]+src="(https:\/\/cdn\d*\.telegram[^"]+)"/g;
+      const srcRe = /<img[^>]+src=["'](https:\/\/cdn\d*\.telegram[^"']+)["']/g;
       while ((m = srcRe.exec(html)) !== null) imgs.add(m[1]);
 
       if (imgs.size === 0) continue;
@@ -103,7 +132,8 @@ async function fetchGNewsEpaper(paperName, date) {
       from: iso,
       apikey: process.env.GNEWS_API_KEY,
     });
-    const res = await fetch(`https://gnews.io/api/v4/search?${params}`);
+    const url = `https://gnews.io/api/v4/search?${params}`;
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
     if (!res.ok) return null;
     const data = await res.json();
     const articles = (data.articles || []).filter(a => a.image);
@@ -311,10 +341,7 @@ async function fetchDirectEpaper(paperId, date) {
   try {
     const { dd, mm, yyyy } = parseDateParts(date);
     const url = urlFn(dd, mm, yyyy);
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://epaper.eenadu.net/' },
-      timeout: 8000,
-    });
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
     if (!res.ok) return null;
     const data = await res.json();
     const images = Array.isArray(data)
