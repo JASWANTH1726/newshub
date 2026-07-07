@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: newshub-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: NEWS_API_KEY
+        sync: false
+      - key: GNEWS_API_KEY
+        sync: false
+      - key: MEDIASTACK_API_KEY
+        sync: false
+      - key: NEWSCATCHER_API_KEY
+        sync: false
+      - key: GUARDIAN_API_KEY
+        sync: false
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: CLIENT_URL
+        sync: false
+      - key: NODE_ENV
+        value: production
