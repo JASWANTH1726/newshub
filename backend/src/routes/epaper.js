@@ -111,6 +111,9 @@ function makeHeadersForUrl(url) {
     if (host.includes('visalaandhra')) return { ...common, Referer: 'https://epaper.visalaandhra.com/' };
     if (host.includes('telanganatoday')) return { ...common, Referer: 'https://epaper.telanganatoday.com/' };
     if (host.includes('amarujala')) return { ...common, Referer: 'https://epaper.amarujala.com/' };
+    if (host.includes('livehindustan')) return { ...common, Referer: 'https://epaper.livehindustan.com/' };
+    if (host.includes('jagran.com')) return { ...common, Referer: 'https://epaper.jagran.com/' };
+    if (host.includes('bhaskar.com')) return { ...common, Referer: 'https://epaper.bhaskar.com/' };
     return common;
   } catch {
     return { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' };
@@ -443,8 +446,65 @@ async function fetchAmarUjalaEpaper(date) {
   }
 }
 
+async function fetchLiveHindustanEpaper(date) {
+  try {
+    const { dd, mm, yyyy } = parseDateParts(date);
+    const url = 'https://epaper.livehindustan.com/';
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const matches = new Set();
+    const regex = new RegExp(`https?:\\/\\/www\\.livehindustan\\.com\\/ep-img\\/prod\\/lh-epaper\\/${yyyy}\\/${mm}\\/${dd}\\/pages\\/[^"'<>]+?_(?:hr|tn)\\.webp`, 'ig');
+    let m;
+    while ((m = regex.exec(html)) !== null) matches.add(m[0]);
+    if (!matches.size) return null;
+    return { source: 'Live Hindustan Homepage', images: Array.from(matches).slice(0, 12) };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchDainikJagranEpaper(date) {
+  try {
+    const { dd, mm, yyyy } = parseDateParts(date);
+    const url = 'https://epaper.jagran.com/';
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const matches = new Set();
+    const regex = new RegExp(`https?:\\/\\/epaperapi\\.jagran\\.com\\/EpaperImages\\/${dd}${mm}${yyyy}\\/[^"'<>]+?\\.(?:png|jpg|webp)`, 'ig');
+    let m;
+    while ((m = regex.exec(html)) !== null) matches.add(m[0]);
+    if (!matches.size) return null;
+    return { source: 'Dainik Jagran Homepage', images: Array.from(matches).slice(0, 12) };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchDainikBhaskarEpaper(date) {
+  try {
+    const { dd, mm, yyyy } = parseDateParts(date);
+    const url = 'https://epaper.bhaskar.com/';
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const matches = new Set();
+    const regex = new RegExp(`https?:\\/\\/images\\.bhaskarassets\\.com\\/[^"'<>]*\\/epaper[^"'<>]*\\/${dd}${mm}${yyyy}\\/[^"'<>]+?\\.(?:jpg|png|webp)`, 'ig');
+    let m;
+    while ((m = regex.exec(html)) !== null) matches.add(m[0]);
+    if (!matches.size) return null;
+    return { source: 'Dainik Bhaskar Homepage', images: Array.from(matches).slice(0, 12) };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchDirectEpaper(paperId, date) {
   if (paperId === 'amar_ujala') return fetchAmarUjalaEpaper(date);
+  if (paperId === 'hindustan_hindi') return fetchLiveHindustanEpaper(date);
+  if (paperId === 'dainik_jagran') return fetchDainikJagranEpaper(date);
+  if (paperId === 'dainik_bhaskar') return fetchDainikBhaskarEpaper(date);
   const urlFn = DIRECT_EPAPER_URLS[paperId];
   if (!urlFn) return null;
   try {
