@@ -17,11 +17,10 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, curl) or any vercel/localhost origin
-    if (!origin || origin.includes('vercel.app') || origin.includes('localhost')) {
+    if (!origin || origin.includes('vercel.app') || origin.includes('localhost') || origin.includes('onrender.com')) {
       callback(null, true);
     } else {
-      callback(null, true); // allow all for now
+      callback(null, true);
     }
   },
   credentials: true,
