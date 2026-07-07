@@ -77,4 +77,12 @@ function connectMongo(retries = 5) {
       else process.exit(1);
     });
 }
-connectMongo();
+
+// For local testing you can skip MongoDB connection by setting `SKIP_MONGO=1`.
+// This starts the HTTP server without connecting to the database.
+if (process.env.SKIP_MONGO === '1' || process.env.SKIP_MONGO === 'true') {
+  console.log('SKIP_MONGO set — starting server without MongoDB');
+  app.listen(PORT, () => console.log(`Server running on port ${PORT} (no Mongo)`));
+} else {
+  connectMongo();
+}
