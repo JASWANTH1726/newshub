@@ -325,6 +325,23 @@ async function fetchDirectEpaper(paperId, date) {
   } catch { return null; }
 }
 
+// ── Fallback: extract image from article page (og:image or first img) ───────
+async function fetchImageFromArticle(url) {
+  try {
+    const res = await fetch(url, { timeout: 8000 });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
+    if (og && og[1]) return og[1];
+    const img = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (img && img[1]) return img[1];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Main route: GET /api/epaper/:paperId ─────────────────────────────────────
 router.get('/:paperId', async (req, res) => {
   const { paperId } = req.params;
@@ -346,7 +363,23 @@ router.get('/:paperId', async (req, res) => {
 
   // Priority: Direct API > Telegram > GNews > NewsCatcher > NewsAPI > MediaStack > Guardian > Direct RSS > Google RSS > Scraper
   const result = direct || telegram || gnews || newscatcher || newsapi || mediastack || guardian || rss || googleRss;
-  if (result) return res.json(result);
+  if (result) {
+    // If no images but we have article URLs, try to extract images from article pages as a fallback
+    if ((result.images || []).length === 0 && (result.articles || []).length > 0) {
+      const fallbackImages = [];
+      for (const a of result.articles.slice(0, 6)) {
+        const u = a.url || a.link || a.urlToImage || '';
+        if (!u) continue;
+        try {
+          const img = await fetchImageFromArticle(u);
+          if (img) fallbackImages.push(img);
+        } catch { /* ignore */ }
+        if (fallbackImages.length >= 6) break;
+      }
+      if (fallbackImages.length > 0) result.images = fallbackImages;
+    }
+    return res.json(result);
+  }
 
   // Last resort: Puppeteer
   const scraped = await fetchViaScraper(paperId, name, date);
