@@ -42,6 +42,8 @@ const DIRECT_EPAPER_URLS = {
   eenadu:            (dd, mm, yyyy) => `https://epaper.eenadu.net/Home/GetAllpages?editionid=1&editiondate=${dd}/${mm}/${yyyy}`,
   sakshi:            (dd, mm, yyyy) => `https://epaper.sakshi.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
   andhrajyothy:      (dd, mm, yyyy) => `https://epaper.andhrajyothy.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
+  visalaandhra:      (dd, mm, yyyy) => `https://epaper.visalaandhra.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
+  telangana_today:   (dd, mm, yyyy) => `https://epaper.telanganatoday.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
   amar_ujala:        (dd, mm, yyyy) => `https://epaper.amarujala.com/svww_index1.php?Iss_dt=${dd}-${mm}-${yyyy}`,
 };
 
@@ -100,6 +102,8 @@ function makeHeadersForUrl(url) {
     if (host.includes('eenadu')) return { ...common, Referer: 'https://epaper.eenadu.net/' };
     if (host.includes('sakshi')) return { ...common, Referer: 'https://epaper.sakshi.com/' };
     if (host.includes('andhrajyothy')) return { ...common, Referer: 'https://epaper.andhrajyothy.com/' };
+    if (host.includes('visalaandhra')) return { ...common, Referer: 'https://epaper.visalaandhra.com/' };
+    if (host.includes('telanganatoday')) return { ...common, Referer: 'https://epaper.telanganatoday.com/' };
     if (host.includes('amarujala')) return { ...common, Referer: 'https://epaper.amarujala.com/' };
     return common;
   } catch {
