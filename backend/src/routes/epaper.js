@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const fetch = require('node-fetch');
+const { URL } = require('url');
 
 // ── Verified Telegram public channels ────────────────────────────────────────
 const TELEGRAM_CHANNELS = {
@@ -39,9 +40,30 @@ const TELEGRAM_CHANNELS = {
 // ── Direct epaper PDF/image URLs (known working) ─────────────────────────────
 const DIRECT_EPAPER_URLS = {
   eenadu:            (dd, mm, yyyy) => `https://epaper.eenadu.net/Home/GetAllpages?editionid=1&editiondate=${dd}/${mm}/${yyyy}`,
-  sakshi:            (dd, mm, yyyy) => `https://epaper.sakshi.com/Home/GetAllpages?editionid=1&editiondate=${dd}/${mm}/${yyyy}`,
-  andhrajyothy:      (dd, mm, yyyy) => `https://epaper.andhrajyothy.com/Home/GetAllpages?editionid=1&editiondate=${dd}/${mm}/${yyyy}`,
+  sakshi:            (dd, mm, yyyy) => `https://epaper.sakshi.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
+  andhrajyothy:      (dd, mm, yyyy) => `https://epaper.andhrajyothy.com/Home/GetDefaultFirstpagesListServiceDynamic?currenteditiondate=${dd}/${mm}/${yyyy}`,
   amar_ujala:        (dd, mm, yyyy) => `https://epaper.amarujala.com/svww_index1.php?Iss_dt=${dd}-${mm}-${yyyy}`,
+};
+
+const PAPER_DISPLAY_NAME = {
+  eenadu: 'Eenadu', sakshi: 'Sakshi', andhrajyothy: 'Andhra Jyothy',
+  namaste_telangana: 'Namasthe Telangana', telangana_today: 'Telangana Today', vaartha: 'Vaartha',
+  andhra_bhoomi: 'Andhra Bhoomi', prajasakti: 'Prajasakti', suryaa: 'Suryaa', visalaandhra: 'Visala Andhra',
+  dainik_jagran: 'Dainik Jagran', dainik_bhaskar: 'Dainik Bhaskar', amar_ujala: 'Amar Ujala',
+  navbharat_times: 'Navbharat Times', hindustan_hindi: 'Live Hindustan', rajasthan_patrika: 'Rajasthan Patrika',
+  nai_dunia: 'Nai Dunia', haribhoomi: 'Haribhoomi', punjab_kesari: 'Punjab Kesari',
+  times_of_india: 'Times of India', the_hindu: 'The Hindu', indian_express: 'Indian Express',
+  hindustan_times: 'Hindustan Times', deccan_herald: 'Deccan Herald', new_indian_express: 'New Indian Express',
+  economic_times: 'Economic Times', the_tribune: 'The Tribune', the_pioneer: 'The Pioneer',
+};
+
+const PAPER_LANGUAGE = {
+  eenadu: 'te', sakshi: 'te', andhrajyothy: 'te', namaste_telangana: 'te', telangana_today: 'te',
+  vaartha: 'te', andhra_bhoomi: 'te', prajasakti: 'te', suryaa: 'te', visalaandhra: 'te',
+  dainik_jagran: 'hi', dainik_bhaskar: 'hi', amar_ujala: 'hi', navbharat_times: 'hi',
+  hindustan_hindi: 'hi', rajasthan_patrika: 'hi', nai_dunia: 'hi', haribhoomi: 'hi', punjab_kesari: 'hi',
+  times_of_india: 'en', the_hindu: 'en', indian_express: 'en', hindustan_times: 'en',
+  deccan_herald: 'en', new_indian_express: 'en', economic_times: 'en', the_tribune: 'en', the_pioneer: 'en',
 };
 
 // ── Helper: parse date ────────────────────────────────────────────────────────
@@ -55,6 +77,36 @@ function parseDateParts(date) {
   };
 }
 
+// ── Helper: fetch with retries and optional headers ──────────────────────────
+async function fetchWithRetry(url, opts = {}, retries = 2, backoff = 500) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      return res;
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise(r => setTimeout(r, backoff * (i + 1)));
+    }
+  }
+}
+
+function makeHeadersForUrl(url) {
+  try {
+    const u = new URL(url);
+    // site-specific referer/user-agent adjustments
+    const host = u.hostname.replace(/^www\./, '');
+    const common = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+    if (host.includes('eenadu')) return { ...common, Referer: 'https://epaper.eenadu.net/' };
+    if (host.includes('sakshi')) return { ...common, Referer: 'https://epaper.sakshi.com/' };
+    if (host.includes('andhrajyothy')) return { ...common, Referer: 'https://epaper.andhrajyothy.com/' };
+    if (host.includes('amarujala')) return { ...common, Referer: 'https://epaper.amarujala.com/' };
+    return common;
+  } catch {
+    return { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' };
+  }
+}
+
 // ── Source 1: Telegram public web preview ────────────────────────────────────
 async function fetchTelegram(channels, date) {
   const { iso } = parseDateParts(date);
@@ -62,20 +114,18 @@ async function fetchTelegram(channels, date) {
 
   for (const channel of channels) {
     try {
-      const res = await fetch(`https://t.me/s/${channel}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        timeout: 8000,
-      });
+      const url = `https://t.me/s/${channel}`;
+      const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
       if (!res.ok) continue;
       const html = await res.text();
 
       const imgs = new Set();
       // background-image style URLs
-      const bgRe = /background-image:url\('(https:\/\/cdn\d*\.telegram[^']+)'\)/g;
+      const bgRe = /background-image:\s*url\(['"]?(https:\/\/cdn\d*\.telegram[^'"\)]+)['"]?\)/g;
       let m;
       while ((m = bgRe.exec(html)) !== null) imgs.add(m[1]);
       // direct img src
-      const srcRe = /<img[^>]+src="(https:\/\/cdn\d*\.telegram[^"]+)"/g;
+      const srcRe = /<img[^>]+src=["'](https:\/\/cdn\d*\.telegram[^"']+)["']/g;
       while ((m = srcRe.exec(html)) !== null) imgs.add(m[1]);
 
       if (imgs.size === 0) continue;
@@ -91,19 +141,20 @@ async function fetchTelegram(channels, date) {
 }
 
 // ── Source 2: GNews API — search for epaper images ───────────────────────────
-async function fetchGNewsEpaper(paperName, date) {
+async function fetchGNewsEpaper(paperName, date, language = 'en') {
   if (!process.env.GNEWS_API_KEY) return null;
   try {
     const { iso } = parseDateParts(date);
     const params = new URLSearchParams({
       q: `"${paperName}" epaper today`,
-      lang: 'en',
+      lang: language,
       country: 'in',
       max: '5',
       from: iso,
       apikey: process.env.GNEWS_API_KEY,
     });
-    const res = await fetch(`https://gnews.io/api/v4/search?${params}`);
+    const url = `https://gnews.io/api/v4/search?${params}`;
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
     if (!res.ok) return null;
     const data = await res.json();
     const articles = (data.articles || []).filter(a => a.image);
@@ -117,13 +168,14 @@ async function fetchGNewsEpaper(paperName, date) {
 }
 
 // ── Source 3: NewsCatcher API ─────────────────────────────────────────────────
-async function fetchNewsCatcherEpaper(paperName, date) {
+async function fetchNewsCatcherEpaper(paperName, date, language = 'en') {
   if (!process.env.NEWSCATCHER_API_KEY) return null;
   try {
     const { iso } = parseDateParts(date);
     const params = new URLSearchParams({
       q: `"${paperName}" epaper`,
       countries: 'IN',
+      languages: language,
       page_size: '5',
       from: iso,
       sort_by: 'date',
@@ -169,7 +221,7 @@ async function fetchNewsAPIEpaper(paperName, date) {
 }
 
 // ── Source 5: MediaStack ──────────────────────────────────────────────────────
-async function fetchMediaStackEpaper(paperName, date) {
+async function fetchMediaStackEpaper(paperName, date, language = 'en') {
   if (!process.env.MEDIASTACK_API_KEY) return null;
   try {
     const { iso } = parseDateParts(date);
@@ -177,6 +229,7 @@ async function fetchMediaStackEpaper(paperName, date) {
       access_key: process.env.MEDIASTACK_API_KEY,
       keywords: `${paperName} epaper`,
       countries: 'in',
+      languages: language,
       date: iso,
       limit: '5',
       sort: 'published_desc',
@@ -221,19 +274,27 @@ async function fetchGuardianEpaper(paperName, date) {
 }
 
 // ── Source 7: Google News RSS ───────────────────────────────────────────────────
-async function fetchGoogleNewsRSSEpaper(paperName, date) {
+function makeAbsoluteUrl(url, baseUrl = 'https://news.google.com') {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('//')) return `https:${url}`;
+  try { return new URL(url, baseUrl).href; } catch { return null; }
+}
+
+async function fetchGoogleNewsRSSEpaper(paperName, date, language = 'en') {
   const Parser = require('rss-parser');
   const rssParser = new Parser({ timeout: 8000 });
   try {
     const { iso } = parseDateParts(date);
     const query = encodeURIComponent(`${paperName} epaper ${iso}`);
-    const url = `https://news.google.com/rss/search?q=${query}&hl=en-IN&gl=IN&ceid=IN:en`;
+    const langCode = language === 'te' ? 'te' : language === 'hi' ? 'hi' : 'en';
+    const url = `https://news.google.com/rss/search?q=${query}&hl=${langCode}-IN&gl=IN&ceid=IN:${langCode}`;
     const feed = await rssParser.parseURL(url);
     const articles = feed.items.slice(0, 5).map(item => ({
       title: item.title?.replace(/ - [^-]+$/, '') || '',
-      url: item.link || '',
+      url: makeAbsoluteUrl(item.link || item.guid || item.id || '', 'https://news.google.com'),
       image: null,
-    }));
+    })).filter(a => a.url);
     if (!articles.length) return null;
     return { source: 'Google News RSS', images: [], articles };
   } catch { return null; }
@@ -270,6 +331,33 @@ const NEWSPAPER_RSS = {
   the_pioneer: 'https://www.dailypioneer.com/rss.xml',
 };
 
+function extractImageFromHtml(html, baseUrl) {
+  if (!html) return null;
+  const images = [];
+  const add = (raw) => {
+    if (!raw) return;
+    const trimmed = raw.trim();
+    if (/^https?:\/\//i.test(trimmed)) images.push(trimmed);
+    else if (/^\/\//.test(trimmed)) images.push(`https:${trimmed}`);
+    else {
+      try { images.push(new URL(trimmed, baseUrl).href); } catch { /* ignore invalid */ }
+    }
+  };
+
+  const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
+  if (og && og[1]) add(og[1]);
+
+  const imgRe = /<img[^>]+(?:src|data-src|data-srcset)=["']([^"']+)["']/ig;
+  let m;
+  while ((m = imgRe.exec(html)) !== null) add(m[1]);
+
+  const bgRe = /background-image:\s*url\(["']?([^"')]+)["']?\)/ig;
+  while ((m = bgRe.exec(html)) !== null) add(m[1]);
+
+  return images.filter(Boolean)[0] || null;
+}
+
 async function fetchDirectRSSEpaper(paperId, date) {
   const Parser = require('rss-parser');
   const rssParser = new Parser({ timeout: 8000 });
@@ -277,11 +365,17 @@ async function fetchDirectRSSEpaper(paperId, date) {
   if (!rssUrl) return null;
   try {
     const feed = await rssParser.parseURL(rssUrl);
-    const articles = feed.items.slice(0, 5).map(item => ({
-      title: item.title || '',
-      url: item.link || '',
-      image: item.enclosure?.url || item['media:content']?.['$']?.url || null,
-    }));
+    const articles = feed.items.slice(0, 5).map(item => {
+      const url = item.link || item.guid || item.id || '';
+      const baseUrl = url || rssUrl;
+      const imageFromEnclosure = item.enclosure?.url || item['media:content']?.['$']?.url || item['media:thumbnail']?.url || null;
+      const imageFromContent = extractImageFromHtml(item['content:encoded'] || item.content || item.description || '', baseUrl);
+      return {
+        title: item.title || '',
+        url,
+        image: imageFromEnclosure || imageFromContent || null,
+      };
+    });
     if (!articles.length) return null;
     const images = articles.map(a => a.image).filter(Boolean);
     return { source: 'Direct RSS', images, articles };
@@ -311,14 +405,19 @@ async function fetchDirectEpaper(paperId, date) {
   try {
     const { dd, mm, yyyy } = parseDateParts(date);
     const url = urlFn(dd, mm, yyyy);
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://epaper.eenadu.net/' },
-      timeout: 8000,
-    });
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
     if (!res.ok) return null;
-    const data = await res.json();
-    const images = Array.isArray(data)
-      ? data.map(p => p.HighResolution || p.PageImage || p.ImageUrl).filter(Boolean)
+    let data = await res.json();
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch { /* ignore invalid string */ }
+    }
+    const pages = Array.isArray(data)
+      ? data
+      : data && typeof data === 'object'
+        ? Object.values(data).flat()
+        : [];
+    const images = Array.isArray(pages)
+      ? pages.map(p => p.HighResolution || p.PageImage || p.ImageUrl).filter(Boolean)
       : [];
     if (!images.length) return null;
     return { source: 'Direct Epaper API', images: images.slice(0, 12) };
@@ -328,37 +427,68 @@ async function fetchDirectEpaper(paperId, date) {
 // ── Fallback: extract image from article page (og:image or first img) ───────
 async function fetchImageFromArticle(url) {
   try {
-    const res = await fetch(url, { timeout: 8000 });
+    const res = await fetch(url, { headers: makeHeadersForUrl(url), timeout: 10000 });
     if (!res.ok) return null;
     const html = await res.text();
+    const baseUrl = new URL(url);
+
+    const absoluteUrl = (raw) => {
+      if (!raw) return null;
+      const trimmed = raw.trim();
+      if (/^https?:\/\//i.test(trimmed)) return trimmed;
+      if (/^\/\//.test(trimmed)) return `${baseUrl.protocol}${trimmed}`;
+      try { return new URL(trimmed, baseUrl).href; } catch { return null; }
+    };
+
     const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
-      || html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
-    if (og && og[1]) return og[1];
-    const img = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-    if (img && img[1]) return img[1];
+      || html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+itemprop=["']image["'][^>]+content=["']([^"']+)["']/i);
+    if (og && og[1]) return absoluteUrl(og[1]);
+
+    const img = html.match(/<img[^>]+(?:src|data-src|data-srcset)=["']([^"']+)["']/i);
+    if (img && img[1]) return absoluteUrl(img[1]);
+
+    const bg = html.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/i);
+    if (bg && bg[1]) return absoluteUrl(bg[1]);
+
     return null;
   } catch {
     return null;
   }
 }
 
+async function fetchImagesFromArticles(articles, limit = 6) {
+  const images = [];
+  for (const article of articles.slice(0, limit)) {
+    const url = article.url || article.link || article.urlToImage || '';
+    if (!url) continue;
+    try {
+      const image = await fetchImageFromArticle(url);
+      if (image) images.push(image);
+    } catch { /* ignore per-url failures */ }
+    if (images.length >= limit) break;
+  }
+  return Array.from(new Set(images));
+}
+
 // ── Main route: GET /api/epaper/:paperId ─────────────────────────────────────
 router.get('/:paperId', async (req, res) => {
   const { paperId } = req.params;
   const { date, paperName } = req.query;
-  const name = paperName || paperId;
+  const name = paperName || PAPER_DISPLAY_NAME[paperId] || paperId;
+  const language = PAPER_LANGUAGE[paperId] || 'en';
 
   // Run all 8 sources in parallel
   const [direct, telegram, gnews, newscatcher, newsapi, mediastack, guardian, rss, googleRss] = await Promise.all([
     fetchDirectEpaper(paperId, date),
     fetchTelegram(TELEGRAM_CHANNELS[paperId] || [], date),
-    fetchGNewsEpaper(name, date),
-    fetchNewsCatcherEpaper(name, date),
+    fetchGNewsEpaper(name, date, language),
+    fetchNewsCatcherEpaper(name, date, language),
     fetchNewsAPIEpaper(name, date),
-    fetchMediaStackEpaper(name, date),
+    fetchMediaStackEpaper(name, date, language),
     fetchGuardianEpaper(name, date),
     fetchDirectRSSEpaper(paperId, date),
-    fetchGoogleNewsRSSEpaper(name, date),
+    fetchGoogleNewsRSSEpaper(name, date, language),
   ]);
 
   // Priority: Direct API > Telegram > GNews > NewsCatcher > NewsAPI > MediaStack > Guardian > Direct RSS > Google RSS > Scraper
@@ -366,16 +496,7 @@ router.get('/:paperId', async (req, res) => {
   if (result) {
     // If no images but we have article URLs, try to extract images from article pages as a fallback
     if ((result.images || []).length === 0 && (result.articles || []).length > 0) {
-      const fallbackImages = [];
-      for (const a of result.articles.slice(0, 6)) {
-        const u = a.url || a.link || a.urlToImage || '';
-        if (!u) continue;
-        try {
-          const img = await fetchImageFromArticle(u);
-          if (img) fallbackImages.push(img);
-        } catch { /* ignore */ }
-        if (fallbackImages.length >= 6) break;
-      }
+      const fallbackImages = await fetchImagesFromArticles(result.articles, 6);
       if (fallbackImages.length > 0) result.images = fallbackImages;
     }
     return res.json(result);
