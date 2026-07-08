@@ -418,29 +418,36 @@ async function fetchAmarUjalaEpaper(date) {
     const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
     if (!res.ok) return null;
     const html = await res.text();
-    const matches = new Set();
+    const images = [];
 
-    const pageUrls = [...html.matchAll(/https:\/\/epimg\.amarujala\.com\/[0-9\/]+\/(?:dl|hd)\/[0-9]{2}\/hdimage\.jpg\?[^"'\s<>]+/ig)];
-    for (const m of pageUrls) matches.add(m[0]);
-
-    const thumbMatches = [...html.matchAll(/https:\/\/epimg\.amarujala\.com\/[0-9\/]+\/([0-9]{2})\/thumb\.jpg\?[^"'\s<>]+/ig)];
-    for (const m of thumbMatches) matches.add(m[0]);
-
+    // Primary: parse thumb_image_link JSON which lists all pages, then swap thumb.jpg → hdimage.jpg
+    // The homepage exposes full-res as hdimage.jpg (e.g. epimg.amarujala.com/YYYY/MM/DD/dl/NN/hdimage.jpg?s=...)
+    // while thumb.jpg is the low-res thumbnail (~39KB vs ~750KB for hdimage.jpg)
     const rawJson = html.match(/id="thumb_image_link"\s+data-value="([^"']+)"/i)?.[1];
     if (rawJson) {
       try {
         const unescaped = rawJson.replace(/&quot;/g, '"');
         const parsed = JSON.parse(unescaped);
-        Object.values(parsed).forEach(page => {
-          if (page && page.image) matches.add(page.image);
-        });
-      } catch {
-        /* ignore parse errors */
-      }
+        // Sort pages numerically so they appear in order
+        const pageNums = Object.keys(parsed).sort((a, b) => parseInt(a) - parseInt(b));
+        for (const key of pageNums) {
+          const thumbUrl = parsed[key]?.image;
+          if (!thumbUrl) continue;
+          // Replace /thumb.jpg with /hdimage.jpg — same path, different filename
+          const hdUrl = thumbUrl.replace(/\/thumb\.jpg(\?|$)/, '/hdimage.jpg$1');
+          images.push(hdUrl);
+        }
+      } catch { /* ignore parse errors */ }
     }
 
-    if (!matches.size) return null;
-    return { source: 'Amar Ujala Homepage', images: Array.from(matches).slice(0, 12) };
+    // Fallback: direct hdimage.jpg references already in the HTML (e.g. <img id="cropbox">)
+    if (!images.length) {
+      const hdMatches = [...html.matchAll(/https:\/\/epimg\.amarujala\.com\/[0-9\/]+\/(?:dl|hd)\/[0-9]{2}\/hdimage\.jpg\?[^"'\s<>]+/ig)];
+      for (const m of hdMatches) images.push(m[0]);
+    }
+
+    if (!images.length) return null;
+    return { source: 'Amar Ujala Homepage', images: images.slice(0, 16) };
   } catch {
     return null;
   }
@@ -448,17 +455,35 @@ async function fetchAmarUjalaEpaper(date) {
 
 async function fetchLiveHindustanEpaper(date) {
   try {
-    const { dd, mm, yyyy } = parseDateParts(date);
     const url = 'https://epaper.livehindustan.com/';
     const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
     if (!res.ok) return null;
     const html = await res.text();
+
+    // Primary: parse __NEXT_DATA__ JSON which contains viewerSrc (_hr.webp, 1524×2500)
+    // and thumbnailSrc (_tn.webp, 954×1500) for every page. Always use viewerSrc.
+    const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (nextDataMatch) {
+      try {
+        const nextData = JSON.parse(nextDataMatch[1]);
+        const pages = nextData?.props?.pageProps?.edition?.pages;
+        if (Array.isArray(pages) && pages.length) {
+          const images = pages
+            .sort((a, b) => a.pageNumber - b.pageNumber)
+            .map(p => p.viewerSrc)
+            .filter(Boolean);
+          if (images.length) return { source: 'Live Hindustan Homepage', images: images.slice(0, 16) };
+        }
+      } catch { /* fall through to regex */ }
+    }
+
+    // Fallback: regex targeting only _hr.webp (high-res), never _tn.webp (thumbnail)
     const matches = new Set();
-    const regex = new RegExp(`https?:\\/\\/www\\.livehindustan\\.com\\/ep-img\\/prod\\/lh-epaper\\/${yyyy}\\/${mm}\\/${dd}\\/pages\\/[^"'<>]+?_(?:hr|tn)\\.webp`, 'ig');
+    const hrRegex = /https?:\/\/www\.livehindustan\.com\/ep-img\/prod\/lh-epaper\/[0-9\/]+\/pages\/[^"'<>]+?_hr\.webp/ig;
     let m;
-    while ((m = regex.exec(html)) !== null) matches.add(m[0]);
+    while ((m = hrRegex.exec(html)) !== null) matches.add(m[0]);
     if (!matches.size) return null;
-    return { source: 'Live Hindustan Homepage', images: Array.from(matches).slice(0, 12) };
+    return { source: 'Live Hindustan Homepage', images: Array.from(matches).slice(0, 16) };
   } catch {
     return null;
   }
