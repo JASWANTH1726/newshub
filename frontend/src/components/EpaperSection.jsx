@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import styles from './EpaperSection.module.css';
@@ -59,13 +59,10 @@ function PaperViewer({ paper, date, onClose }) {
   const [articles, setArticles] = useState([]);
   const [epaperUrl, setEpaperUrl] = useState('#');
   const [loading, setLoading] = useState(true);
-  const [keyword, setKeyword] = useState('');
-  const [inputVal, setInputVal] = useState('');
-  const debounceRef = useRef(null);
 
-  const load = (kw) => {
+  useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ date, keyword: kw || '' });
+    const params = new URLSearchParams({ date });
     api.get(`/api/epaper/${paper.id}/articles?${params}`)
       .then(res => {
         setArticles(res.data.articles || []);
@@ -73,20 +70,7 @@ function PaperViewer({ paper, date, onClose }) {
       })
       .catch(() => setArticles([]))
       .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(keyword); }, [paper.id, date, keyword]);
-
-  const handleKeywordChange = (e) => {
-    const val = e.target.value;
-    setInputVal(val);
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setKeyword(val), 500);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') { clearTimeout(debounceRef.current); setKeyword(inputVal); }
-  };
+  }, [paper.id, date]);
 
   return (
     <div className={styles.viewerOverlay} onClick={onClose}>
@@ -104,26 +88,10 @@ function PaperViewer({ paper, date, onClose }) {
           </div>
         </div>
 
-        <div className={styles.viewerSearch}>
-          <input
-            type="text"
-            placeholder="Search keywords e.g. ukku, steel plant, ukkunagaram..."
-            value={inputVal}
-            onChange={handleKeywordChange}
-            onKeyDown={handleKeyDown}
-            className={styles.keywordInput}
-            autoFocus
-          />
-          {inputVal && (
-            <button className={styles.clearBtn} onClick={() => { setInputVal(''); setKeyword(''); }}>✕</button>
-          )}
-        </div>
-
         {loading ? (
           <div className={styles.viewerLoading}>⏳ Loading articles...</div>
         ) : articles.length > 0 ? (
           <div className={styles.articleList}>
-            {keyword && <p className={styles.resultCount}>🔍 {articles.length} result{articles.length !== 1 ? 's' : ''} for "{keyword}"</p>}
             {articles.map((a, i) => (
               <a
                 key={i}
@@ -144,7 +112,7 @@ function PaperViewer({ paper, date, onClose }) {
           </div>
         ) : (
           <div className={styles.viewerEmpty}>
-            <p>📭 {keyword ? `No articles found for "${keyword}"` : 'No articles found for this date.'}</p>
+            <p>📭 No articles found for this date.</p>
             <p className={styles.viewerHint}>Try a different date or keyword, or visit the e-paper site directly.</p>
             <a href={epaperUrl} target="_blank" rel="noopener noreferrer" className={styles.visitBtn} style={{ marginTop: 12, display: 'inline-block' }}>
               🌐 Open {paper.name} E-Paper
