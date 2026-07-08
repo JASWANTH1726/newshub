@@ -500,11 +500,30 @@ async function fetchDainikBhaskarEpaper(date) {
   }
 }
 
+async function fetchPunjabKesariEpaper(date) {
+  try {
+    const url = 'https://epaper.punjabkesari.in/';
+    const res = await fetchWithRetry(url, { headers: makeHeadersForUrl(url), timeout: 10000 }, 2, 400);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const matches = new Set();
+    // Pattern: https://epaperimg.punjabkesari.in/punjabkesari/YYYYMMDD/YYYYMMDD_xxx_edition_pg_N-thumb_255.jpg
+    const re = /https:\/\/epaperimg\.punjabkesari\.in\/punjabkesari\/[0-9]{8}\/[^"'\s<>]+-thumb_255\.jpg/ig;
+    let m;
+    while ((m = re.exec(html)) !== null) matches.add(m[0]);
+    if (!matches.size) return null;
+    return { source: 'Punjab Kesari Homepage', images: Array.from(matches).slice(0, 12) };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchDirectEpaper(paperId, date) {
   if (paperId === 'amar_ujala') return fetchAmarUjalaEpaper(date);
   if (paperId === 'hindustan_hindi') return fetchLiveHindustanEpaper(date);
   if (paperId === 'dainik_jagran') return fetchDainikJagranEpaper(date);
   if (paperId === 'dainik_bhaskar') return fetchDainikBhaskarEpaper(date);
+  if (paperId === 'punjab_kesari') return fetchPunjabKesariEpaper(date);
   const urlFn = DIRECT_EPAPER_URLS[paperId];
   if (!urlFn) return null;
   try {
