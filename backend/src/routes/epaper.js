@@ -2,14 +2,6 @@ const router = require('express').Router();
 const fetch = require('node-fetch');
 const Parser = require('rss-parser');
 
-// ── Telegram channels (verified working) ─────────────────────────────────────
-const TELEGRAM_CHANNELS = {
-  times_of_india:  ['toi_epaper'],
-  hindustan_times: ['hindustantimesepaper', 'HindustanTimes', 'HTdaily'],
-  deccan_herald:   ['deccanheraldnews'],
-  economic_times:  ['EconomicTimesNews', 'economictimesnews'],
-};
-
 // ── Direct free epaper APIs (Telugu papers) ───────────────────────────────────
 const DIRECT_EPAPER_URLS = {
   eenadu:          (dd, mm, yyyy) => `https://epaper.eenadu.net/Home/GetAllpages?editionid=1&editiondate=${dd}/${mm}/${yyyy}&IsMag=0`,
@@ -20,6 +12,10 @@ const DIRECT_EPAPER_URLS = {
 
 // ── RSS feeds (for article-list papers) ──────────────────────────────────────
 const PAPER_RSS = {
+  times_of_india:     'https://timesofindia.indiatimes.com/rssfeedstopstories.cms',
+  hindustan_times:    'https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml',
+  deccan_herald:      'https://www.deccanherald.com/rss-feed/national.rss',
+  economic_times:     'https://economictimes.indiatimes.com/rssfeedstopstories.cms',
   namaste_telangana:  'https://www.namasttelangana.com/rss/top-news.xml',
   telangana_today:    'https://telanganatoday.com/feed',
   vaartha:            'https://www.vaartha.com/feed',
@@ -83,38 +79,6 @@ function parseDateParts(date) {
   };
 }
 
-// ── Fetch images from Telegram public channel ─────────────────────────────────
-async function fetchTelegram(channels, date) {
-  const { iso } = parseDateParts(date);
-  const dateVariants = [iso, iso.replace(/-/g, ''), iso.replace(/-/g, '.')];
-
-  for (const channel of channels) {
-    try {
-      const res = await fetch(`https://t.me/s/${channel}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        timeout: 12000,
-      });
-      if (!res.ok) continue;
-      const html = await res.text();
-
-      const imgs = new Set();
-      const bgRe = /background-image:\s*url\(['"]?(https:\/\/cdn\d*\.telesco\.pe\/file\/[^'")\s]+)['"]?\)/g;
-      const srcRe = /<img[^>]+src=["'](https:\/\/cdn\d*\.telesco\.pe\/file\/[^"']+)["']/g;
-      let m;
-      while ((m = bgRe.exec(html)) !== null) imgs.add(m[1]);
-      while ((m = srcRe.exec(html)) !== null) imgs.add(m[1]);
-
-      if (!imgs.size) continue;
-
-      const all = [...imgs];
-      const dated = all.filter(u => dateVariants.some(v => u.includes(v)));
-      // Return dated images if found, otherwise latest 10
-      return { images: (dated.length > 0 ? dated : all).slice(-10), source: `Telegram @${channel}` };
-    } catch { continue; }
-  }
-  return null;
-}
-
 // ── Fetch page images from direct epaper API (Eenadu/Sakshi style) ────────────
 async function fetchDirectEpaper(paperId, date) {
   const urlFn = DIRECT_EPAPER_URLS[paperId];
@@ -147,17 +111,8 @@ router.get('/:paperId', async (req, res) => {
   const { date } = req.query;
   const epaperUrl = PAPER_EPAPER_URL[paperId] || '#';
 
-  // 1. Try direct API (Telugu papers)
   const direct = await fetchDirectEpaper(paperId, date);
   if (direct) return res.json({ ...direct, epaperUrl, articles: [] });
-
-  // 2. Try Telegram (TOI, HT, DH, ET)
-  const tgChannels = TELEGRAM_CHANNELS[paperId];
-  if (tgChannels) {
-    const tg = await fetchTelegram(tgChannels, date);
-    if (tg) return res.json({ ...tg, epaperUrl, articles: [] });
-  }
-
   res.json({ images: [], articles: [], source: null, epaperUrl });
 });
 
