@@ -28,15 +28,15 @@ const EPAPERS = {
     { id: 'punjab_kesari',     name: 'Punjab Kesari'      },
   ],
   English: [
-    { id: 'times_of_india',     name: 'Times of India'    },
-    { id: 'the_hindu',          name: 'The Hindu'          },
-    { id: 'indian_express',     name: 'Indian Express'     },
-    { id: 'hindustan_times',    name: 'Hindustan Times'    },
-    { id: 'deccan_herald',      name: 'Deccan Herald'      },
-    { id: 'new_indian_express', name: 'New Indian Express' },
-    { id: 'economic_times',     name: 'Economic Times'     },
-    { id: 'the_tribune',        name: 'The Tribune'        },
-    { id: 'the_pioneer',        name: 'The Pioneer'        },
+    { id: 'times_of_india',     name: 'Times of India',     epaperUrl: 'https://epaper.timesofindiagroup.com/' },
+    { id: 'the_hindu',          name: 'The Hindu',          epaperUrl: 'https://epaper.thehindu.com/' },
+    { id: 'indian_express',     name: 'Indian Express',     epaperUrl: 'https://epaper.indianexpress.com/' },
+    { id: 'hindustan_times',    name: 'Hindustan Times',    epaperUrl: 'https://epaper.hindustantimes.com/' },
+    { id: 'deccan_herald',      name: 'Deccan Herald',      epaperUrl: 'https://epaper.deccanherald.com/' },
+    { id: 'new_indian_express', name: 'New Indian Express', epaperUrl: 'https://epaper.newindianexpress.com/' },
+    { id: 'economic_times',     name: 'Economic Times',     epaperUrl: 'https://epaper.economictimes.com/' },
+    { id: 'the_tribune',        name: 'The Tribune',        epaperUrl: 'https://epaper.tribuneindia.com/' },
+    { id: 'the_pioneer',        name: 'The Pioneer',        epaperUrl: 'https://epaper.dailypioneer.com/' },
   ],
 };
 
@@ -63,7 +63,7 @@ function Skeleton() {
 }
 
 // ─── Full-screen reader ───────────────────────────────────────────────────────
-function PaperViewer({ paper, date, onClose }) {
+function PaperViewer({ paper, date, onClose, initialPage = 0, searchKeyword = '' }) {
   const [images, setImages]       = useState([]);
   const [data, setData]           = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -75,6 +75,7 @@ function PaperViewer({ paper, date, onClose }) {
   const [imgErrors, setImgErrors] = useState({});
   const [jumpOpen, setJumpOpen]   = useState(false);
   const [jumpVal, setJumpVal]     = useState('');
+  const [kwBanner, setKwBanner]   = useState(!!searchKeyword);
 
   const readerRef  = useRef(null);
   const mainRef    = useRef(null);
@@ -90,10 +91,16 @@ function PaperViewer({ paper, date, onClose }) {
     setImages([]); setData(null); setPage(0);
     setZoomIdx(DEFAULT_ZOOM); setImgErrors({});
     api.get(`/api/epaper/${paper.id}?date=${date}&paperName=${encodeURIComponent(paper.name)}`)
-      .then(res => { setData(res.data); setImages(res.data.images || []); })
+      .then(res => {
+        setData(res.data);
+        const imgs = res.data.images || [];
+        setImages(imgs);
+        // Jump to initialPage once images are available
+        if (initialPage > 0 && imgs.length > initialPage) setPage(initialPage);
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [paper.id, paper.name, date]);
+  }, [paper.id, paper.name, date, initialPage]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -300,6 +307,15 @@ function PaperViewer({ paper, date, onClose }) {
         <div className={styles.sourceBadge}>📡 {data.source}</div>
       )}
 
+      {/* ── Keyword banner ── */}
+      {kwBanner && searchKeyword && !loading && (
+        <div className={styles.kwBanner}>
+          🔎 Opened from keyword search: <strong>{searchKeyword}</strong>
+          {initialPage > 0 && <span> — jumped to page {initialPage + 1}</span>}
+          <button className={styles.kwBannerClose} onClick={() => setKwBanner(false)}>✕</button>
+        </div>
+      )}
+
       {/* ── Reading area ── */}
       <div
         className={`${styles.readerMain} ${readMode === 'scroll' ? styles.readerScroll : ''}`}
@@ -367,6 +383,139 @@ function PaperViewer({ paper, date, onClose }) {
   );
 }
 
+// ─── Keyword Search ──────────────────────────────────────────────────────────
+const LANG_CODE = { Telugu: 'te', Hindi: 'hi', English: 'en' };
+
+function highlight(text, kw) {
+  if (!kw || !text) return text;
+  const idx = text.toLowerCase().indexOf(kw.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className={styles.kwMark}>{text.slice(idx, idx + kw.length)}</mark>
+      {text.slice(idx + kw.length)}
+    </>
+  );
+}
+
+function KeywordSearch({ activeLang, activePaper, date, onOpenPaper }) {
+  const [open, setOpen]         = useState(false);
+  const [kw, setKw]             = useState('');
+  const [results, setResults]   = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [searched, setSearched] = useState('');
+  const inputRef = useRef(null);
+
+  const doSearch = async (e) => {
+    e && e.preventDefault();
+    const q = kw.trim();
+    if (!q) return;
+    setLoading(true); setResults([]); setSearched(q);
+    try {
+      const params = new URLSearchParams({ keyword: q, date });
+      if (activePaper) params.set('paperId', activePaper.id);
+      else params.set('lang', LANG_CODE[activeLang] || 'en');
+      const res = await api.get(`/api/epaper/search?${params}`);
+      setResults(res.data.results || []);
+    } catch { setResults([]); }
+    finally { setLoading(false); }
+  };
+
+  const handleToggle = () => {
+    setOpen(o => !o);
+    if (!open) setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
+  const handleResultClick = (r, idx) => {
+    // Use result index as a best-effort page hint (RSS articles map roughly to pages)
+    onOpenPaper({ id: r.paperId, name: r.paperName, initialPage: idx, searchKeyword: searched });
+  };
+
+  return (
+    <div className={styles.kwSection}>
+      <button className={`${styles.kwToggle} ${open ? styles.kwToggleOpen : ''}`} onClick={handleToggle}>
+        <span>🔎 Keyword Search</span>
+        <span className={styles.kwToggleHint}>
+          {open ? 'hide' : 'search inside e-papers'}
+        </span>
+        <span className={styles.kwChevron}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className={styles.kwPanel}>
+          <form onSubmit={doSearch} className={styles.kwForm}>
+            <input
+              ref={inputRef}
+              type="text"
+              className={styles.kwInput}
+              placeholder={activePaper
+                ? `Search inside ${activePaper.name}…`
+                : `Search across ${activeLang} e-papers…`}
+              value={kw}
+              onChange={e => setKw(e.target.value)}
+            />
+            <button type="submit" className={styles.kwBtn} disabled={loading || !kw.trim()}>
+              {loading ? '…' : 'Search'}
+            </button>
+          </form>
+
+          <div className={styles.kwHints}>
+            {['Sports', 'Cricket', 'Politics', 'Jobs', 'Education', 'Technology', 'Stock Market'].map(s => (
+              <button key={s} className={styles.kwChip}
+                onClick={() => { setKw(s); setTimeout(doSearch, 0); }}>
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {loading && (
+            <div className={styles.kwLoading}>
+              <span className={styles.kwSpinner} /> Searching RSS feeds…
+            </div>
+          )}
+
+          {!loading && searched && results.length === 0 && (
+            <div className={styles.kwEmpty}>
+              No results found for <strong>"{searched}"</strong>.
+              <span className={styles.kwEmptyHint}> Try a broader keyword or different language tab.</span>
+            </div>
+          )}
+
+          {results.length > 0 && (
+            <div className={styles.kwResults}>
+              <p className={styles.kwResultsMeta}>
+                {results.length} result{results.length !== 1 ? 's' : ''} for <strong>"{searched}"</strong>
+              </p>
+              {results.map((r, i) => (
+                <button key={i} className={styles.kwResult} onClick={() => handleResultClick(r, i)}>
+                  <div className={styles.kwResultLeft}>
+                    {r.image && (
+                      <img src={r.image} alt="" className={styles.kwResultImg}
+                        onError={e => e.target.style.display = 'none'} />
+                    )}
+                  </div>
+                  <div className={styles.kwResultBody}>
+                    <div className={styles.kwResultMeta}>
+                      <span className={styles.kwResultPaper}>{r.paperName}</span>
+                      <span className={styles.kwResultDate}>{r.date}</span>
+                    </div>
+                    <p className={styles.kwResultTitle}>{highlight(r.title, searched)}</p>
+                    {r.snippet && (
+                      <p className={styles.kwResultSnippet}>{highlight(r.snippet, searched)}</p>
+                    )}
+                  </div>
+                  <span className={styles.kwResultArrow}>📖</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Section (paper picker) ───────────────────────────────────────────────────
 export default function EpaperSection({ epaperFilters }) {
   const { user } = useAuth();
@@ -376,7 +525,7 @@ export default function EpaperSection({ epaperFilters }) {
   const [activeLang, setActiveLang]       = useState(prefLang);
   const [date, setDate]                   = useState(todayStr());
   const [search, setSearch]               = useState('');
-  const [selectedPaper, setSelectedPaper] = useState(null);
+  const [selectedPaper, setSelectedPaper] = useState(null); // { id, name, initialPage?, searchKeyword? }
 
   useEffect(() => {
     if (!epaperFilters) return;
@@ -435,6 +584,14 @@ export default function EpaperSection({ epaperFilters }) {
         ))}
       </div>
 
+      {/* Keyword search — independent, does not affect existing filters */}
+      <KeywordSearch
+        activeLang={activeLang}
+        activePaper={null}
+        date={date}
+        onOpenPaper={paper => setSelectedPaper(paper)}
+      />
+
       {/* Cards */}
       {filtered.length === 0 ? (
         <div className="no-results">
@@ -443,7 +600,16 @@ export default function EpaperSection({ epaperFilters }) {
         </div>
       ) : (
         <div className={styles.grid}>
-          {filtered.map(paper => (
+          {filtered.map(paper => paper.epaperUrl ? (
+            <a key={paper.id} className={styles.card}
+              href={paper.epaperUrl} target="_blank" rel="noopener noreferrer">
+              <div className={styles.cardTop}>
+                <span className={styles.cardName}>{paper.name}</span>
+                <span className={`${styles.badge} ${styles.badgeExternal}`}>🔗 Official Site</span>
+              </div>
+              <span className={styles.cardArrow}>📖 Open E-Paper ↗</span>
+            </a>
+          ) : (
             <button key={paper.id} className={styles.card} onClick={() => setSelectedPaper(paper)}>
               <div className={styles.cardTop}>
                 <span className={styles.cardName}>{paper.name}</span>
@@ -456,7 +622,13 @@ export default function EpaperSection({ epaperFilters }) {
       )}
 
       {selectedPaper && (
-        <PaperViewer paper={selectedPaper} date={date} onClose={() => setSelectedPaper(null)} />
+        <PaperViewer
+          paper={selectedPaper}
+          date={date}
+          onClose={() => setSelectedPaper(null)}
+          initialPage={selectedPaper.initialPage || 0}
+          searchKeyword={selectedPaper.searchKeyword || ''}
+        />
       )}
     </div>
   );

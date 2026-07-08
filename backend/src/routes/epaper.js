@@ -601,6 +601,83 @@ async function fetchImagesFromArticles(articles, limit = 6) {
   return Array.from(new Set(images));
 }
 
+// ── Keyword search: GET /api/epaper/search ──────────────────────────────────
+router.get('/search', async (req, res) => {
+  const { keyword, paperId, lang, date } = req.query;
+  if (!keyword || !keyword.trim()) return res.json({ results: [] });
+
+  const kw = keyword.trim().toLowerCase();
+  const { iso } = parseDateParts(date);
+
+  const LANG_PAPERS = {
+    te: ['eenadu','sakshi','andhrajyothy','namaste_telangana','telangana_today','vaartha','andhra_bhoomi','prajasakti','suryaa','visalaandhra'],
+    hi: ['dainik_jagran','dainik_bhaskar','amar_ujala','hindustan_hindi','navbharat_times','rajasthan_patrika','nai_dunia','haribhoomi','punjab_kesari'],
+    en: ['times_of_india','the_hindu','indian_express','hindustan_times','deccan_herald','new_indian_express','economic_times','the_tribune','the_pioneer'],
+  };
+
+  let paperIds;
+  if (paperId && NEWSPAPER_RSS[paperId]) {
+    paperIds = [paperId];
+  } else if (lang && LANG_PAPERS[lang]) {
+    paperIds = LANG_PAPERS[lang].filter(id => NEWSPAPER_RSS[id]);
+  } else {
+    paperIds = Object.keys(NEWSPAPER_RSS);
+  }
+
+  const Parser = require('rss-parser');
+  const rssParser = new Parser({ timeout: 8000 });
+
+  const stripHtml = str => (str || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
+
+  const makeSnippet = (text, kw) => {
+    const clean = stripHtml(text);
+    const idx = clean.toLowerCase().indexOf(kw);
+    if (idx === -1) return clean.slice(0, 120) + (clean.length > 120 ? '\u2026' : '');
+    const start = Math.max(0, idx - 60);
+    const end   = Math.min(clean.length, idx + kw.length + 60);
+    return (start > 0 ? '\u2026' : '') + clean.slice(start, end) + (end < clean.length ? '\u2026' : '');
+  };
+
+  const searchOne = async (id) => {
+    const rssUrl = NEWSPAPER_RSS[id];
+    if (!rssUrl) return [];
+    try {
+      const feed = await rssParser.parseURL(rssUrl);
+      const hits = [];
+      for (const item of feed.items.slice(0, 30)) {
+        const title    = item.title || '';
+        const desc     = stripHtml(item['content:encoded'] || item.content || item.description || '');
+        const combined = (title + ' ' + desc).toLowerCase();
+        if (!combined.includes(kw)) continue;
+        const url   = item.link || item.guid || '';
+        const image = item.enclosure?.url
+          || item['media:content']?.['$']?.url
+          || item['media:thumbnail']?.url
+          || extractImageFromHtml(item['content:encoded'] || item.description || '', url)
+          || null;
+        hits.push({
+          paperId:   id,
+          paperName: PAPER_DISPLAY_NAME[id] || id,
+          date:      iso,
+          title:     title.replace(/ - [^-]+$/, ''),
+          snippet:   makeSnippet(desc || title, kw),
+          url,
+          image,
+        });
+        if (hits.length >= 5) break;
+      }
+      return hits;
+    } catch { return []; }
+  };
+
+  const batches = await Promise.all(paperIds.slice(0, 10).map(searchOne));
+  const results = batches.flat().slice(0, 30);
+  res.json({ results, keyword: keyword.trim() });
+});
+
 // ── Main route: GET /api/epaper/:paperId ─────────────────────────────────────
 router.get('/:paperId', async (req, res) => {
   const { paperId } = req.params;
