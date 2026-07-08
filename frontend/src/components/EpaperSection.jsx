@@ -1,42 +1,42 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import styles from './EpaperSection.module.css';
 
 const EPAPERS = {
   Telugu: [
-    { id: 'eenadu',            name: 'Eenadu' },
-    { id: 'sakshi',            name: 'Sakshi' },
-    { id: 'andhrajyothy',      name: 'Andhra Jyothy' },
-    { id: 'namaste_telangana', name: 'Namasthe Telangana' },
-    { id: 'telangana_today',   name: 'Telangana Today' },
-    { id: 'vaartha',           name: 'Vaartha' },
-    { id: 'andhra_bhoomi',     name: 'Andhra Bhoomi' },
-    { id: 'prajasakti',        name: 'Prajasakti' },
-    { id: 'suryaa',            name: 'Suryaa' },
-    { id: 'visalaandhra',      name: 'Visalaandhra' },
+    { id: 'eenadu',            name: 'Eenadu',             access: 'free' },
+    { id: 'sakshi',            name: 'Sakshi',              access: 'free' },
+    { id: 'andhrajyothy',      name: 'Andhra Jyothy',       access: 'free' },
+    { id: 'namaste_telangana', name: 'Namasthe Telangana',  access: 'free' },
+    { id: 'telangana_today',   name: 'Telangana Today',     access: 'free' },
+    { id: 'vaartha',           name: 'Vaartha',             access: 'free' },
+    { id: 'andhra_bhoomi',     name: 'Andhra Bhoomi',       access: 'free' },
+    { id: 'prajasakti',        name: 'Prajasakti',          access: 'free' },
+    { id: 'suryaa',            name: 'Suryaa',              access: 'free' },
+    { id: 'visalaandhra',      name: 'Visalaandhra',        access: 'free' },
   ],
   Hindi: [
-    { id: 'dainik_jagran',     name: 'Dainik Jagran' },
-    { id: 'dainik_bhaskar',    name: 'Dainik Bhaskar' },
-    { id: 'amar_ujala',        name: 'Amar Ujala' },
-    { id: 'hindustan_hindi',   name: 'Hindustan (Hindi)' },
-    { id: 'navbharat_times',   name: 'Navbharat Times' },
-    { id: 'rajasthan_patrika', name: 'Rajasthan Patrika' },
-    { id: 'nai_dunia',         name: 'Nai Dunia' },
-    { id: 'haribhoomi',        name: 'Haribhoomi' },
-    { id: 'punjab_kesari',     name: 'Punjab Kesari' },
+    { id: 'dainik_jagran',     name: 'Dainik Jagran',       access: 'free' },
+    { id: 'dainik_bhaskar',    name: 'Dainik Bhaskar',      access: 'free' },
+    { id: 'amar_ujala',        name: 'Amar Ujala',          access: 'free' },
+    { id: 'hindustan_hindi',   name: 'Hindustan (Hindi)',   access: 'free' },
+    { id: 'navbharat_times',   name: 'Navbharat Times',     access: 'free' },
+    { id: 'rajasthan_patrika', name: 'Rajasthan Patrika',   access: 'free' },
+    { id: 'nai_dunia',         name: 'Nai Dunia',           access: 'free' },
+    { id: 'haribhoomi',        name: 'Haribhoomi',          access: 'free' },
+    { id: 'punjab_kesari',     name: 'Punjab Kesari',       access: 'free' },
   ],
   English: [
-    { id: 'times_of_india',    name: 'Times of India' },
-    { id: 'the_hindu',         name: 'The Hindu' },
-    { id: 'indian_express',    name: 'Indian Express' },
-    { id: 'hindustan_times',   name: 'Hindustan Times' },
-    { id: 'deccan_herald',     name: 'Deccan Herald' },
-    { id: 'new_indian_express',name: 'New Indian Express' },
-    { id: 'economic_times',    name: 'Economic Times' },
-    { id: 'the_tribune',       name: 'The Tribune' },
-    { id: 'the_pioneer',       name: 'The Pioneer' },
+    { id: 'times_of_india',    name: 'Times of India',      access: 'free' },
+    { id: 'the_hindu',         name: 'The Hindu',           access: 'free' },
+    { id: 'indian_express',    name: 'Indian Express',      access: 'free' },
+    { id: 'hindustan_times',   name: 'Hindustan Times',     access: 'free' },
+    { id: 'deccan_herald',     name: 'Deccan Herald',       access: 'free' },
+    { id: 'new_indian_express',name: 'New Indian Express',  access: 'free' },
+    { id: 'economic_times',    name: 'Economic Times',      access: 'free' },
+    { id: 'the_tribune',       name: 'The Tribune',         access: 'free' },
+    { id: 'the_pioneer',       name: 'The Pioneer',         access: 'free' },
   ],
 };
 
@@ -48,27 +48,21 @@ const LANG_META = {
 
 const todayStr = () => new Date().toISOString().split('T')[0];
 
-function formatDate(str) {
-  if (!str) return '';
-  const d = new Date(str);
-  if (isNaN(d)) return str;
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
 function PaperViewer({ paper, date, onClose }) {
-  const [articles, setArticles] = useState([]);
-  const [epaperUrl, setEpaperUrl] = useState('#');
+  const [images, setImages] = useState([]);
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeImg, setActiveImg] = useState(0);
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ date });
-    api.get(`/api/epaper/${paper.id}/articles?${params}`)
+    api.get(`/api/epaper/${paper.id}?date=${date}&paperName=${encodeURIComponent(paper.name)}`)
       .then(res => {
-        setArticles(res.data.articles || []);
-        setEpaperUrl(res.data.epaperUrl || '#');
+        setData(res.data);
+        setImages(res.data.images || []);
+        setActiveImg(0);
       })
-      .catch(() => setArticles([]))
+      .catch(() => { setImages([]); setData(null); })
       .finally(() => setLoading(false));
   }, [paper.id, date]);
 
@@ -76,47 +70,57 @@ function PaperViewer({ paper, date, onClose }) {
     <div className={styles.viewerOverlay} onClick={onClose}>
       <div className={styles.viewer} onClick={e => e.stopPropagation()}>
         <div className={styles.viewerHeader}>
-          <div className={styles.viewerTitle}>
-            <span>📄 {paper.name}</span>
-            <span className={styles.viewerDate}>📅 {date}</span>
-          </div>
-          <div className={styles.viewerActions}>
-            <a href={epaperUrl} target="_blank" rel="noopener noreferrer" className={styles.visitBtn}>
-              🌐 Visit E-Paper Site
-            </a>
-            <button className={styles.closeBtn} onClick={onClose}>✕</button>
-          </div>
+          <h3>📄 {paper.name} — {date}</h3>
+          <button className={styles.closeBtn} onClick={onClose}>✕</button>
         </div>
 
         {loading ? (
-          <div className={styles.viewerLoading}>⏳ Loading articles...</div>
-        ) : articles.length > 0 ? (
-          <div className={styles.articleList}>
-            {articles.map((a, i) => (
-              <a
-                key={i}
-                href={a.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.articleItem}
-              >
-                <div className={styles.articleMeta}>
-                  <span className={styles.articleSource}>{paper.name}</span>
-                  <span className={styles.articleDate}>{formatDate(a.publishedAt)}</span>
-                </div>
-                <div className={styles.articleTitle}>{a.title}</div>
-                {a.snippet && <div className={styles.articleSnippet}>{a.snippet.slice(0, 160)}{a.snippet.length > 160 ? '…' : ''}</div>}
-                <span className={styles.readMore}>Read full article →</span>
+          <div className={styles.viewerLoading}>⏳ Fetching epaper pages from all sources...</div>
+        ) : images.length > 0 ? (
+          <>
+            <div className={styles.viewerSource}>📡 Source: {data?.source}</div>
+            <div className={styles.viewerMain}>
+              <img
+                src={images[activeImg]}
+                alt={`${paper.name} page ${activeImg + 1}`}
+                className={styles.viewerImg}
+                onError={e => { e.target.style.display = 'none'; }}
+              />
+            </div>
+            {images.length > 1 && (
+              <div className={styles.viewerThumbs}>
+                {images.map((img, i) => (
+                  <img
+                    key={i}
+                    src={img}
+                    alt={`Page ${i + 1}`}
+                    className={`${styles.thumb} ${activeImg === i ? styles.thumbActive : ''}`}
+                    onClick={() => setActiveImg(i)}
+                    onError={e => { e.target.style.display = 'none'; }}
+                  />
+                ))}
+              </div>
+            )}
+            <div className={styles.viewerNav}>
+              <button disabled={activeImg === 0} onClick={() => setActiveImg(i => i - 1)}>◀ Prev</button>
+              <span>Page {activeImg + 1} / {images.length}</span>
+              <button disabled={activeImg === images.length - 1} onClick={() => setActiveImg(i => i + 1)}>Next ▶</button>
+            </div>
+          </>
+        ) : data?.articles?.length > 0 ? (
+          <div className={styles.viewerArticles}>
+            <p className={styles.viewerHint}>📰 No page images found — showing related articles from {data.source}:</p>
+            {data.articles.map((a, i) => (
+              <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" className={styles.articleLink}>
+                {a.image && <img src={a.image} alt={a.title} className={styles.articleThumb} onError={e => e.target.style.display='none'} />}
+                <span>{a.title}</span>
               </a>
             ))}
           </div>
         ) : (
           <div className={styles.viewerEmpty}>
-            <p>📭 No articles found for this date.</p>
-            <p className={styles.viewerHint}>Try a different date or keyword, or visit the e-paper site directly.</p>
-            <a href={epaperUrl} target="_blank" rel="noopener noreferrer" className={styles.visitBtn} style={{ marginTop: 12, display: 'inline-block' }}>
-              🌐 Open {paper.name} E-Paper
-            </a>
+            <p>📭 No epaper pages found for this date.</p>
+            <p className={styles.viewerHint}>Try a different date or check the Telegram channel directly.</p>
           </div>
         )}
       </div>
@@ -139,6 +143,8 @@ export default function EpaperSection({ epaperFilters }) {
     if (epaperFilters.language) setActiveLang(epaperFilters.language);
     if (epaperFilters.date) setDate(epaperFilters.date);
     if (epaperFilters.search !== undefined) setSearch(epaperFilters.search);
+
+    // If specific newspaper selected, open viewer directly
     if (epaperFilters.search) {
       const lang = epaperFilters.language || activeLang;
       const papers = EPAPERS[lang] || [];
@@ -154,10 +160,11 @@ export default function EpaperSection({ epaperFilters }) {
 
   return (
     <div className={styles.section}>
+      {/* Header */}
       <div className={styles.hero}>
         <div className={styles.heroText}>
           <h2>📄 E-Papers</h2>
-          <p>Browse articles from today's newspaper editions — click any article to read on the newspaper's website</p>
+          <p>Read today's newspaper editions — fetched from free public sources</p>
         </div>
         <div className={styles.heroControls}>
           <div className={styles.dateRow}>
@@ -180,6 +187,7 @@ export default function EpaperSection({ epaperFilters }) {
         </div>
       </div>
 
+      {/* Language tabs */}
       <div className={styles.langTabs}>
         {Object.keys(EPAPERS).map(lang => (
           <button
@@ -193,6 +201,7 @@ export default function EpaperSection({ epaperFilters }) {
         ))}
       </div>
 
+      {/* Cards */}
       {filtered.length === 0 ? (
         <div className="no-results">
           <span className="icon">🔍</span>
@@ -208,14 +217,15 @@ export default function EpaperSection({ epaperFilters }) {
             >
               <div className={styles.cardTop}>
                 <span className={styles.cardName}>{paper.name}</span>
-                <span className={styles.badge}>✅ Free</span>
+                <span className={`${styles.badge} ${styles.badgeFree}`}>✅ Free</span>
               </div>
-              <span className={styles.cardArrow}>📰 Browse Articles</span>
+              <span className={styles.cardArrow}>📖 Read E-Paper</span>
             </button>
           ))}
         </div>
       )}
 
+      {/* Inline viewer */}
       {selectedPaper && (
         <PaperViewer
           paper={selectedPaper}
