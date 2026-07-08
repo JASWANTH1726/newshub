@@ -1,0 +1,74 @@
+Folder PATH listing for volume Windows
+Volume serial number is 000001F9 2A91:9DD6
+C:\USERS\JASWA\DOWNLOADS\ML PROJECT\NEWSHUB
+¦   .gitignore
+¦   ARCHITECTURE.md
+¦   CHECKLIST.md
+¦   DEPLOYMENT.md
+¦   DIRECTORY_STRUCTURE.txt
+¦   DOCS_INDEX.md
+¦   FAQ.md
+¦   package.json
+¦   PROJECT_COMPLETE.txt
+¦   PROJECT_SUMMARY.md
+¦   QUICKSTART.md
+¦   README.md
+¦   setup.bat
+¦   
++---backend
+¦   ¦   .env.example
+¦   ¦   package.json
+¦   ¦   render.yaml
+¦   ¦   
+¦   +---src
+¦       ¦   index.js
+¦       ¦   
+¦       +---middleware
+¦       ¦       auth.js
+¦       ¦       
+¦       +---models
+¦       ¦       User.js
+¦       ¦       
+¦       +---routes
+¦       ¦       auth.js
+¦       ¦       news.js
+¦       ¦       user.js
+¦       ¦       
+¦       +---services
+¦               newsService.js
+¦               
++---frontend
+    ¦   .env.example
+    ¦   index.html
+    ¦   package.json
+    ¦   vercel.json
+    ¦   vite.config.js
+    ¦   
+    +---public
+    +---src
+        ¦   App.jsx
+        ¦   index.css
+        ¦   main.jsx
+        ¦   
+        +---components
+        ¦       FilterPanel.jsx
+        ¦       FilterPanel.module.css
+        ¦       Navbar.jsx
+        ¦       Navbar.module.css
+        ¦       NewsCard.jsx
+        ¦       
+        +---context
+        ¦       AuthContext.jsx
+        ¦       
+        +---pages
+        ¦       Account.jsx
+        ¦       Account.module.css
+        ¦       Auth.module.css
+        ¦       Dashboard.jsx
+        ¦       Dashboard.module.css
+        ¦       Login.jsx
+        ¦       Register.jsx
+        ¦       
+        +---services
+                api.js
+                
