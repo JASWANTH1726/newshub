@@ -280,8 +280,6 @@
   position: relative;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
-  /* Ensure sub-pixel rendering doesn't blur the composited image layers */
-  transform: translateZ(0);
 }
 .readerScroll {
   align-items: flex-start;
@@ -291,17 +289,12 @@
 /* ── Single page ─────────────────────────────────────────────────────────── */
 .mainImg {
   display: block;
-  max-width: 100%;
   height: auto;
   border-radius: 6px;
   box-shadow: 0 12px 48px rgba(0,0,0,0.7);
-  /* High-quality rendering: use smooth bicubic interpolation for newspaper scans */
-  image-rendering: -webkit-optimize-contrast; /* Safari: sharpens without pixelating */
-  image-rendering: high-quality;              /* Standard: best quality downscale/upscale */
-  -ms-interpolation-mode: bicubic;            /* IE/Edge legacy */
-  /* Promote to own compositor layer so zoom transform never causes a repaint blur */
-  will-change: transform;
-  transform-origin: top center;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: high-quality;
+  -ms-interpolation-mode: bicubic;
 }
 
 /* ── Double spread ───────────────────────────────────────────────────────── */
@@ -314,7 +307,6 @@
 }
 .spreadImg {
   flex: 1;
-  max-width: 50%;
   height: auto;
   display: block;
   border-radius: 4px;
@@ -322,10 +314,8 @@
   image-rendering: -webkit-optimize-contrast;
   image-rendering: high-quality;
   -ms-interpolation-mode: bicubic;
-  will-change: transform;
-  transform-origin: top center;
 }
-.spreadBlank { flex: 1; max-width: 50%; }
+.spreadBlank { flex: 1; }
 
 /* ── Scroll mode ─────────────────────────────────────────────────────────── */
 .scrollPages {
@@ -352,14 +342,12 @@
 }
 .scrollImg {
   display: block;
-  max-width: 100%;
   height: auto;
   border-radius: 6px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.6);
   image-rendering: -webkit-optimize-contrast;
   image-rendering: high-quality;
   -ms-interpolation-mode: bicubic;
-  transform-origin: top center;
 }
 
 /* ── Thumbnail strip ─────────────────────────────────────────────────────── */

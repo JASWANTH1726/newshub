@@ -62,6 +62,121 @@ function Skeleton() {
   );
 }
 
+// ─── Viewer keyword search bar ───────────────────────────────────────────────
+const SEARCH_CHIPS = ['Sports', 'Cricket', 'Politics', 'Jobs', 'Education', 'Technology', 'Elections'];
+
+function ViewerSearch({ paper, date, totalPages, onJumpPage }) {
+  const [open, setOpen]         = useState(false);
+  const [kw, setKw]             = useState('');
+  const [matches, setMatches]   = useState([]);
+  const [matchIdx, setMatchIdx] = useState(0);
+  const [loading, setLoading]   = useState(false);
+  const [searched, setSearched] = useState('');
+  const inputRef = useRef(null);
+
+  const doSearch = useCallback(async (query) => {
+    const q = (query !== undefined ? query : kw).trim();
+    if (!q) return;
+    setLoading(true); setMatches([]); setMatchIdx(0); setSearched(q);
+    try {
+      const params = new URLSearchParams({ keyword: q, paperId: paper.id, date });
+      const res = await api.get(`/api/epaper/search?${params}`);
+      const results = res.data.results || [];
+      const mapped = results.map((r, i) => ({
+        pageIdx: Math.min(i, Math.max(0, totalPages - 1)),
+        title:   r.title,
+        snippet: r.snippet,
+      }));
+      setMatches(mapped);
+      if (mapped.length > 0) onJumpPage(mapped[0].pageIdx);
+    } catch { setMatches([]); }
+    finally { setLoading(false); }
+  }, [kw, paper.id, date, totalPages, onJumpPage]);
+
+  // Ctrl+F opens the bar
+  useEffect(() => {
+    const handle = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setOpen(true);
+        setTimeout(() => inputRef.current?.focus(), 60);
+      }
+      if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); }
+    };
+    window.addEventListener('keydown', handle, true);
+    return () => window.removeEventListener('keydown', handle, true);
+  }, [open]);
+
+  const goTo = (idx) => {
+    const clamped = ((idx % matches.length) + matches.length) % matches.length;
+    setMatchIdx(clamped);
+    onJumpPage(matches[clamped].pageIdx);
+  };
+
+  const handleKey = e => {
+    if (e.key === 'Enter') { e.preventDefault(); matches.length ? goTo(matchIdx + 1) : doSearch(); }
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+  };
+
+  const clear = () => { setKw(''); setMatches([]); setSearched(''); setMatchIdx(0); };
+
+  if (!open) {
+    return (
+      <button className={styles.vsOpenBtn}
+        onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 60); }}
+        title="Search inside this e-paper (Ctrl+F)">🔎</button>
+    );
+  }
+
+  return (
+    <div className={styles.vsBar}>
+      <div className={styles.vsRow}>
+        <input ref={inputRef} type="text" className={styles.vsInput}
+          placeholder={`Search in ${paper.name}\u2026`}
+          value={kw} onChange={e => setKw(e.target.value)} onKeyDown={handleKey} />
+        <button className={styles.vsBtn} onClick={() => doSearch()} disabled={loading || !kw.trim()}>
+          {loading ? <span className={styles.vsSpinner} /> : 'Search'}
+        </button>
+        {matches.length > 0 && (
+          <>
+            <span className={styles.vsCount}>{matchIdx + 1}/{matches.length}</span>
+            <button className={styles.vsNav} onClick={() => goTo(matchIdx - 1)} title="Previous match">\u25b2</button>
+            <button className={styles.vsNav} onClick={() => goTo(matchIdx + 1)} title="Next match">\u25bc</button>
+          </>
+        )}
+        <button className={styles.vsClose} onClick={() => { clear(); setOpen(false); }} title="Close (Esc)">\u2715</button>
+      </div>
+
+      {!searched && (
+        <div className={styles.vsChips}>
+          {SEARCH_CHIPS.map(s => (
+            <button key={s} className={styles.vsChip} onClick={() => { setKw(s); doSearch(s); }}>{s}</button>
+          ))}
+        </div>
+      )}
+
+      {searched && !loading && matches.length === 0 && (
+        <div className={styles.vsEmpty}>
+          No results for <strong>&#8220;{searched}&#8221;</strong> &#8212; pages are image-only; search uses article headlines from the RSS feed.
+        </div>
+      )}
+
+      {matches.length > 0 && (
+        <div className={styles.vsResults}>
+          {matches.map((m, i) => (
+            <button key={i}
+              className={`${styles.vsResult} ${i === matchIdx ? styles.vsResultActive : ''}`}
+              onClick={() => goTo(i)}>
+              <span className={styles.vsResultPage}>p.{m.pageIdx + 1}</span>
+              <span className={styles.vsResultTitle}>{m.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Full-screen reader ───────────────────────────────────────────────────────
 function PaperViewer({ paper, date, onClose, initialPage = 0, searchKeyword = '' }) {
   const [images, setImages]       = useState([]);
@@ -188,7 +303,10 @@ function PaperViewer({ paper, date, onClose, initialPage = 0, searchKeyword = ''
   };
 
   // ── Page rendering ────────────────────────────────────────────────────────
-  const imgStyle = { transform: `scale(${zoom})`, transformOrigin: 'top center' };
+  // Use width-based zoom: set the image to zoom × 100% of the scroll container
+  // so the browser renders at true pixel density instead of GPU-scaling blurry pixels.
+  const imgStyle = { width: `${zoom * 100}%`, height: 'auto' };
+  const spreadStyle = { width: `${zoom * 100}%`, height: 'auto' };
 
   const renderSingle = () => imgErrors[page] ? (
     <div className={styles.imgError}>
@@ -210,7 +328,7 @@ function PaperViewer({ paper, date, onClose, initialPage = 0, searchKeyword = ''
           <div key={idx} className={styles.imgError}>⚠ Page {pi + 1} failed</div>
         ) : (
           <img key={idx} src={src} alt={`${paper.name} page ${pi + 1}`}
-            className={styles.spreadImg} style={imgStyle} draggable={false}
+            className={styles.spreadImg} style={spreadStyle} draggable={false}
             onError={() => setImgErrors(e => ({ ...e, [pi]: true }))} />
         );
       })}
@@ -302,6 +420,14 @@ function PaperViewer({ paper, date, onClose, initialPage = 0, searchKeyword = ''
         </div>
       )}
 
+      {/* ── Viewer keyword search ── */}
+      <ViewerSearch
+        paper={paper}
+        date={date}
+        totalPages={total}
+        onJumpPage={setPage}
+      />
+
       {/* ── Source badge ── */}
       {data?.source && !loading && (
         <div className={styles.sourceBadge}>📡 {data.source}</div>
@@ -383,139 +509,6 @@ function PaperViewer({ paper, date, onClose, initialPage = 0, searchKeyword = ''
   );
 }
 
-// ─── Keyword Search ──────────────────────────────────────────────────────────
-const LANG_CODE = { Telugu: 'te', Hindi: 'hi', English: 'en' };
-
-function highlight(text, kw) {
-  if (!kw || !text) return text;
-  const idx = text.toLowerCase().indexOf(kw.toLowerCase());
-  if (idx === -1) return text;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className={styles.kwMark}>{text.slice(idx, idx + kw.length)}</mark>
-      {text.slice(idx + kw.length)}
-    </>
-  );
-}
-
-function KeywordSearch({ activeLang, activePaper, date, onOpenPaper }) {
-  const [open, setOpen]         = useState(false);
-  const [kw, setKw]             = useState('');
-  const [results, setResults]   = useState([]);
-  const [loading, setLoading]   = useState(false);
-  const [searched, setSearched] = useState('');
-  const inputRef = useRef(null);
-
-  const doSearch = async (e) => {
-    e && e.preventDefault();
-    const q = kw.trim();
-    if (!q) return;
-    setLoading(true); setResults([]); setSearched(q);
-    try {
-      const params = new URLSearchParams({ keyword: q, date });
-      if (activePaper) params.set('paperId', activePaper.id);
-      else params.set('lang', LANG_CODE[activeLang] || 'en');
-      const res = await api.get(`/api/epaper/search?${params}`);
-      setResults(res.data.results || []);
-    } catch { setResults([]); }
-    finally { setLoading(false); }
-  };
-
-  const handleToggle = () => {
-    setOpen(o => !o);
-    if (!open) setTimeout(() => inputRef.current?.focus(), 80);
-  };
-
-  const handleResultClick = (r, idx) => {
-    // Use result index as a best-effort page hint (RSS articles map roughly to pages)
-    onOpenPaper({ id: r.paperId, name: r.paperName, initialPage: idx, searchKeyword: searched });
-  };
-
-  return (
-    <div className={styles.kwSection}>
-      <button className={`${styles.kwToggle} ${open ? styles.kwToggleOpen : ''}`} onClick={handleToggle}>
-        <span>🔎 Keyword Search</span>
-        <span className={styles.kwToggleHint}>
-          {open ? 'hide' : 'search inside e-papers'}
-        </span>
-        <span className={styles.kwChevron}>{open ? '▲' : '▼'}</span>
-      </button>
-
-      {open && (
-        <div className={styles.kwPanel}>
-          <form onSubmit={doSearch} className={styles.kwForm}>
-            <input
-              ref={inputRef}
-              type="text"
-              className={styles.kwInput}
-              placeholder={activePaper
-                ? `Search inside ${activePaper.name}…`
-                : `Search across ${activeLang} e-papers…`}
-              value={kw}
-              onChange={e => setKw(e.target.value)}
-            />
-            <button type="submit" className={styles.kwBtn} disabled={loading || !kw.trim()}>
-              {loading ? '…' : 'Search'}
-            </button>
-          </form>
-
-          <div className={styles.kwHints}>
-            {['Sports', 'Cricket', 'Politics', 'Jobs', 'Education', 'Technology', 'Stock Market'].map(s => (
-              <button key={s} className={styles.kwChip}
-                onClick={() => { setKw(s); setTimeout(doSearch, 0); }}>
-                {s}
-              </button>
-            ))}
-          </div>
-
-          {loading && (
-            <div className={styles.kwLoading}>
-              <span className={styles.kwSpinner} /> Searching RSS feeds…
-            </div>
-          )}
-
-          {!loading && searched && results.length === 0 && (
-            <div className={styles.kwEmpty}>
-              No results found for <strong>"{searched}"</strong>.
-              <span className={styles.kwEmptyHint}> Try a broader keyword or different language tab.</span>
-            </div>
-          )}
-
-          {results.length > 0 && (
-            <div className={styles.kwResults}>
-              <p className={styles.kwResultsMeta}>
-                {results.length} result{results.length !== 1 ? 's' : ''} for <strong>"{searched}"</strong>
-              </p>
-              {results.map((r, i) => (
-                <button key={i} className={styles.kwResult} onClick={() => handleResultClick(r, i)}>
-                  <div className={styles.kwResultLeft}>
-                    {r.image && (
-                      <img src={r.image} alt="" className={styles.kwResultImg}
-                        onError={e => e.target.style.display = 'none'} />
-                    )}
-                  </div>
-                  <div className={styles.kwResultBody}>
-                    <div className={styles.kwResultMeta}>
-                      <span className={styles.kwResultPaper}>{r.paperName}</span>
-                      <span className={styles.kwResultDate}>{r.date}</span>
-                    </div>
-                    <p className={styles.kwResultTitle}>{highlight(r.title, searched)}</p>
-                    {r.snippet && (
-                      <p className={styles.kwResultSnippet}>{highlight(r.snippet, searched)}</p>
-                    )}
-                  </div>
-                  <span className={styles.kwResultArrow}>📖</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Section (paper picker) ───────────────────────────────────────────────────
 export default function EpaperSection({ epaperFilters }) {
   const { user } = useAuth();
@@ -583,14 +576,6 @@ export default function EpaperSection({ epaperFilters }) {
           </button>
         ))}
       </div>
-
-      {/* Keyword search — independent, does not affect existing filters */}
-      <KeywordSearch
-        activeLang={activeLang}
-        activePaper={null}
-        date={date}
-        onOpenPaper={paper => setSelectedPaper(paper)}
-      />
 
       {/* Cards */}
       {filtered.length === 0 ? (
