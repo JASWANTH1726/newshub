@@ -292,7 +292,10 @@ async function fetchFromNewsAPI({ query, language = 'en', fromDate } = {}) {
     // NewsAPI supports: en, ar, de, es, fr, it, nl, no, pt, ru, sv, zh
     const supported = ['en', 'ar', 'de', 'es', 'fr', 'it', 'nl', 'no', 'pt', 'ru', 'sv', 'zh'];
     if (supported.includes(language)) params.set('language', language);
-    if (fromDate) params.set('from', fromDate);
+    if (fromDate) {
+      params.set('from', fromDate);
+      params.set('to', fromDate);
+    }
 
     const res = await fetch(`https://newsapi.org/v2/everything?${params}`);
     if (!res.ok) return [];
@@ -331,9 +334,11 @@ async function fetchFromGoogleNews(newspaper, area, language, fromDate) {
 function filterByDate(articles, fromDate) {
   if (!fromDate) return articles;
   const from = new Date(fromDate + 'T00:00:00Z');
+  const to   = new Date(fromDate + 'T23:59:59.999Z');
   return articles.filter(a => {
-    if (!a.publishedAt) return true;
-    return new Date(a.publishedAt) >= from;
+    if (!a.publishedAt) return false;
+    const published = new Date(a.publishedAt);
+    return published >= from && published <= to;
   });
 }
 
