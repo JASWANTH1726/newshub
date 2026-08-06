@@ -284,6 +284,120 @@ async function fetchFromMediaStack({ keywords, languages = 'en', countries = 'in
   } catch { return []; }
 }
 
+// ── API: NewsData.io (200 req/day, supports hi/te, country=in, date filter) ──
+async function fetchFromNewsData({ query, language = 'en', fromDate } = {}) {
+  if (!process.env.NEWSDATA_API_KEY) return [];
+  try {
+    const params = new URLSearchParams({
+      apikey: process.env.NEWSDATA_API_KEY,
+      q: query || 'India',
+      country: 'in',
+      language,
+    });
+    if (fromDate) {
+      params.set('from_date', fromDate);
+      params.set('to_date',   fromDate);
+    }
+    const res = await fetch(`https://newsdata.io/api/1/news?${params}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map(a => ({
+      title: a.title || '',
+      description: a.description || a.content || '',
+      url: a.link || '',
+      urlToImage: a.image_url || null,
+      publishedAt: a.pubDate || '',
+      source: { name: a.source_id || 'NewsData' },
+    }));
+  } catch { return []; }
+}
+
+// ── API: Currents API (600 req/day, 60+ languages, date filter) ───────────────
+async function fetchFromCurrents({ query, language = 'en', fromDate } = {}) {
+  if (!process.env.CURRENTS_API_KEY) return [];
+  try {
+    const params = new URLSearchParams({
+      apiKey: process.env.CURRENTS_API_KEY,
+      keywords: query || 'India',
+      language,
+    });
+    if (fromDate) {
+      params.set('start_date', `${fromDate} 00:00:00`);
+      params.set('end_date',   `${fromDate} 23:59:59`);
+    }
+    const res = await fetch(`https://api.currentsapi.services/v1/search?${params}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.news || []).map(a => ({
+      title: a.title || '',
+      description: a.description || '',
+      url: a.url || '',
+      urlToImage: a.image !== 'None' ? a.image : null,
+      publishedAt: a.published || '',
+      source: { name: a.author || 'Currents' },
+    }));
+  } catch { return []; }
+}
+
+// ── API: TheNewsAPI (100 req/day, categories + date range) ────────────────────
+async function fetchFromTheNewsAPI({ query, language = 'en', fromDate } = {}) {
+  if (!process.env.THENEWSAPI_KEY) return [];
+  try {
+    const params = new URLSearchParams({
+      api_token: process.env.THENEWSAPI_KEY,
+      search: query || 'India',
+      language,
+      limit: '20',
+      sort: 'published_at',
+    });
+    if (fromDate) {
+      params.set('published_after',  `${fromDate}T00:00:00`);
+      params.set('published_before', `${fromDate}T23:59:59`);
+    }
+    const res = await fetch(`https://api.thenewsapi.com/v1/news/all?${params}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.data || []).map(a => ({
+      title: a.title || '',
+      description: a.description || '',
+      url: a.url || '',
+      urlToImage: a.image_url || null,
+      publishedAt: a.published_at || '',
+      source: { name: a.source || 'TheNewsAPI' },
+    }));
+  } catch { return []; }
+}
+
+// ── API: World News API (1000 req/day, date range, multi-language) ────────────
+async function fetchFromWorldNews({ query, language = 'en', fromDate } = {}) {
+  if (!process.env.WORLD_NEWS_API_KEY) return [];
+  try {
+    const params = new URLSearchParams({
+      'api-key': process.env.WORLD_NEWS_API_KEY,
+      text: query || 'India',
+      language,
+      number: '20',
+      sort: 'publish-time',
+      'sort-direction': 'DESC',
+    });
+    if (fromDate) {
+      params.set('earliest-publish-date', `${fromDate} 00:00:00`);
+      params.set('latest-publish-date',   `${fromDate} 23:59:59`);
+    }
+    const res = await fetch(`https://api.worldnewsapi.com/search-news?${params}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.news || []).map(a => ({
+      title: a.title || '',
+      description: a.text ? a.text.slice(0, 200) : '',
+      url: a.url || '',
+      urlToImage: a.image || null,
+      publishedAt: a.publish_date || '',
+      source: { name: a.source_country || 'WorldNews' },
+    }));
+  } catch { return []; }
+}
+
 // ── API: NewsCatcher ──────────────────────────────────────────────────────────
 async function fetchFromNewsCatcher({ query, language = 'en', countries = 'IN', pageSize = 20, fromDate } = {}) {
   if (!process.env.NEWSCATCHER_API_KEY) return [];
@@ -390,7 +504,8 @@ async function fetchByNewspaper(newspaper, area, language, fromDate) {
     ? `${NEWSPAPER_GOOGLE_QUERY[newspaper]} ${areaName !== 'India' ? areaName : ''}`.trim()
     : query;
 
-  const [rss, googleRSS, gnews, newsapi, guardian, newscatcher, mediastack] = await Promise.all([
+  const [rss, googleRSS, gnews, newsapi, guardian, newscatcher, mediastack,
+         newsdata, currents, thenews, worldnews] = await Promise.all([
     fetchFromRSS(newspaper, area),
     fetchFromGoogleNewsRSS(paperGoogleQuery, language),
     fetchFromGNews({ query, language, max: 20, fromDate }),
@@ -398,10 +513,17 @@ async function fetchByNewspaper(newspaper, area, language, fromDate) {
     language === 'en' ? fetchFromGuardian({ query, pageSize: 20, fromDate }) : Promise.resolve([]),
     fetchFromNewsCatcher({ query, language, pageSize: 20, fromDate }),
     fetchFromMediaStack({ keywords: query, languages: msLang, limit: 20, fromDate }),
+    fetchFromNewsData({ query, language, fromDate }),
+    fetchFromCurrents({ query, language, fromDate }),
+    fetchFromTheNewsAPI({ query, language, fromDate }),
+    fetchFromWorldNews({ query, language, fromDate }),
   ]);
 
-  const merged = mergeAndRank([rss, googleRSS, gnews, newsapi, guardian, newscatcher, mediastack], fromDate);
-  // smartDateFilter always returns something — never empty
+  const merged = mergeAndRank(
+    [rss, googleRSS, gnews, newsapi, guardian, newscatcher, mediastack,
+     newsdata, currents, thenews, worldnews],
+    fromDate
+  );
   return smartDateFilter(merged, fromDate).slice(0, 30);
 }
 
@@ -413,22 +535,29 @@ async function fetchByAreaAndLanguage(area, language, keywords, fromDate) {
     : areaName;
   const msLang = language === 'te' ? 'te' : language === 'hi' ? 'hi' : 'en';
 
-  const [googleRSS, gnews, newsapi, guardian, newscatcher, mediastack] = await Promise.all([
+  const [googleRSS, gnews, newsapi, guardian, newscatcher, mediastack,
+         newsdata, currents, thenews, worldnews] = await Promise.all([
     fetchFromGoogleNewsRSS(query, language),
     fetchFromGNews({ query, language: msLang, max: 20, fromDate }),
     fetchFromNewsAPI({ query, language, fromDate }),
     language === 'en' ? fetchFromGuardian({ query, pageSize: 20, fromDate }) : Promise.resolve([]),
     fetchFromNewsCatcher({ query, language, pageSize: 20, fromDate }),
     fetchFromMediaStack({ keywords: query, languages: msLang, limit: 20, fromDate }),
+    fetchFromNewsData({ query, language, fromDate }),
+    fetchFromCurrents({ query, language, fromDate }),
+    fetchFromTheNewsAPI({ query, language, fromDate }),
+    fetchFromWorldNews({ query, language, fromDate }),
   ]);
 
-  const merged = mergeAndRank([googleRSS, gnews, newsapi, guardian, newscatcher, mediastack], fromDate);
+  const merged = mergeAndRank(
+    [googleRSS, gnews, newsapi, guardian, newscatcher, mediastack,
+     newsdata, currents, thenews, worldnews],
+    fromDate
+  );
 
-  // smartDateFilter always returns something
   const results = smartDateFilter(merged, fromDate);
   if (results.length > 0) return results.slice(0, 30);
 
-  // Last resort: Puppeteer scrape (live only)
   if (!fromDate) return scrapeGoogleNews(query, 20);
   return [];
 }
@@ -440,15 +569,21 @@ async function fetchRecommendations(keywords, area, language) {
   const query = `(${keywords.slice(0, 3).join(' OR ')}) ${areaName}`;
   const msLang = language === 'te' ? 'te' : language === 'hi' ? 'hi' : 'en';
 
-  const [gnews, googleRSS, newscatcher, guardian, newsapi] = await Promise.all([
-    fetchFromGNews({ query, language: msLang, max: 10 }),
-    fetchFromGoogleNewsRSS(query, language),
-    fetchFromNewsCatcher({ query, language, pageSize: 10 }),
-    language === 'en' ? fetchFromGuardian({ query, pageSize: 10 }) : Promise.resolve([]),
-    fetchFromNewsAPI({ query, language }),
-  ]);
+  const [gnews, googleRSS, newscatcher, guardian, newsapi, newsdata, currents, thenews, worldnews] =
+    await Promise.all([
+      fetchFromGNews({ query, language: msLang, max: 10 }),
+      fetchFromGoogleNewsRSS(query, language),
+      fetchFromNewsCatcher({ query, language, pageSize: 10 }),
+      language === 'en' ? fetchFromGuardian({ query, pageSize: 10 }) : Promise.resolve([]),
+      fetchFromNewsAPI({ query, language }),
+      fetchFromNewsData({ query, language }),
+      fetchFromCurrents({ query, language }),
+      fetchFromTheNewsAPI({ query, language }),
+      fetchFromWorldNews({ query, language }),
+    ]);
 
-  return mergeAndRank([gnews, googleRSS, newscatcher, guardian, newsapi], null).slice(0, 10);
+  return mergeAndRank([gnews, googleRSS, newscatcher, guardian, newsapi,
+    newsdata, currents, thenews, worldnews], null).slice(0, 10);
 }
 
 module.exports = {
@@ -457,6 +592,10 @@ module.exports = {
   fetchFromMediaStack,
   fetchFromNewsCatcher,
   fetchFromGuardian,
+  fetchFromNewsData,
+  fetchFromCurrents,
+  fetchFromTheNewsAPI,
+  fetchFromWorldNews,
   fetchFromRSS,
   fetchByNewspaper,
   fetchByAreaAndLanguage,
