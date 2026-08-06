@@ -16,6 +16,7 @@ export default function Dashboard() {
   const [query, setQuery] = useState('');
   const [activeNewspaper, setActiveNewspaper] = useState('');
   const [epaperFilters, setEpaperFilters] = useState({ language: 'Telugu', search: '', freeOnly: false, date: '' });
+  const [appliedFilters, setAppliedFilters] = useState({});
 
   const fetchNews = async (filters = {}) => {
     setLoading(true);
@@ -41,12 +42,10 @@ export default function Dashboard() {
         api.get('/api/news/recommendations'),
       ]);
       let arts = feedRes.data.articles || [];
-      // Filter to only articles from the selected date
+      // Client-side: keep only articles on or after the selected date
       if (merged.date) {
-        arts = arts.filter(a => {
-          if (!a.publishedAt) return true;
-          return a.publishedAt.slice(0, 10) === merged.date;
-        });
+        const from = new Date(merged.date + 'T00:00:00');
+        arts = arts.filter(a => !a.publishedAt || new Date(a.publishedAt) >= from);
       }
       setArticles(arts);
       setActiveNewspaper(feedRes.data.activeNewspaper || '');
@@ -58,16 +57,16 @@ export default function Dashboard() {
     }
   };
 
-  // Fetch news when switching to news mode
+  // Fetch news when switching to news mode, using any already-applied filters
   useEffect(() => {
-    if (mode === 'news' && articles.length === 0) fetchNews();
+    if (mode === 'news') fetchNews(appliedFilters);
   }, [mode]);
 
   const handleSearch = e => {
     e.preventDefault();
     if (!query.trim()) return;
     setMode('news');
-    fetchNews({ query: query.trim() });
+    fetchNews({ ...appliedFilters, query: query.trim() });
   };
 
   const handleModeChange = newMode => {
@@ -75,13 +74,15 @@ export default function Dashboard() {
   };
 
   const handleFilter = filters => {
+    setAppliedFilters(filters);
     setEpaperFilters({
       language: filters.epaperLang || 'Telugu',
       search: filters.epaperSearch || '',
       freeOnly: false,
       date: filters.date || '',
     });
-    if (mode === 'news') fetchNews(filters);
+    // Fetch news with new filters so it's ready when user switches to news mode
+    fetchNews(filters);
   };
 
   return (
@@ -125,11 +126,9 @@ export default function Dashboard() {
                 )}
                 <div className="section-heading">
                   🌐 Digital News
-                  {articles.length > 0 && (
-                    <span style={{ fontSize: '0.78rem', fontWeight: 400, marginLeft: 10, color: '#94a3b8' }}>
-                      {articles[0]?.publishedAt
-                        ? `— ${articles.length} articles`
-                        : ''}
+                  {appliedFilters.date && (
+                    <span style={{ fontSize: '0.78rem', fontWeight: 400, marginLeft: 10, color: '#f59e0b' }}>
+                      📅 {new Date(appliedFilters.date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
                     </span>
                   )}
                 </div>
