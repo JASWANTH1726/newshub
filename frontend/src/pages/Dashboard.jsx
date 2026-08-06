@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import NewsCard from '../components/NewsCard';
@@ -41,13 +41,7 @@ export default function Dashboard() {
         api.get(`/api/news/feed?${params}`),
         api.get('/api/news/recommendations'),
       ]);
-      let arts = feedRes.data.articles || [];
-      // Client-side: keep only articles on or after the selected date
-      if (merged.date) {
-        const from = new Date(merged.date + 'T00:00:00');
-        arts = arts.filter(a => !a.publishedAt || new Date(a.publishedAt) >= from);
-      }
-      setArticles(arts);
+      setArticles(feedRes.data.articles || []);
       setActiveNewspaper(feedRes.data.activeNewspaper || '');
       setRecommendations(recRes.data.articles || []);
     } catch (err) {
@@ -57,16 +51,18 @@ export default function Dashboard() {
     }
   };
 
-  // Fetch news when switching to news mode, using any already-applied filters
+  // Use a ref so the mode-switch effect always sees the latest appliedFilters
+  const appliedFiltersRef = React.useRef({});
+
   useEffect(() => {
-    if (mode === 'news') fetchNews(appliedFilters);
+    if (mode === 'news') fetchNews(appliedFiltersRef.current);
   }, [mode]);
 
   const handleSearch = e => {
     e.preventDefault();
     if (!query.trim()) return;
     setMode('news');
-    fetchNews({ ...appliedFilters, query: query.trim() });
+    fetchNews({ ...appliedFiltersRef.current, query: query.trim() });
   };
 
   const handleModeChange = newMode => {
@@ -74,15 +70,15 @@ export default function Dashboard() {
   };
 
   const handleFilter = filters => {
-    setAppliedFilters(filters);
+    appliedFiltersRef.current = filters;   // update ref immediately (no async delay)
+    setAppliedFilters(filters);            // update state for UI display
     setEpaperFilters({
       language: filters.epaperLang || 'Telugu',
       search: filters.epaperSearch || '',
       freeOnly: false,
       date: filters.date || '',
     });
-    // Fetch news with new filters so it's ready when user switches to news mode
-    fetchNews(filters);
+    fetchNews(filters);                    // fetch with the exact filters object passed in
   };
 
   return (
