@@ -122,38 +122,61 @@ const NEWSPAPER_GOOGLE_QUERY = {
 };
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
-// Normalise any publishedAt value to a YYYY-MM-DD string in IST (UTC+5:30).
-// Handles ISO strings, RFC-2822 strings, and already-formatted YYYY-MM-DD values.
 function toISTDateStr(publishedAt) {
   if (!publishedAt) return '';
-  // Already a plain date string — treat as-is (no timezone shift needed)
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(publishedAt).trim())) return String(publishedAt).trim();
   const d = new Date(publishedAt);
   if (isNaN(d.getTime())) return '';
-  // Shift to IST = UTC + 5h 30m
   const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
   return ist.toISOString().slice(0, 10);
 }
 
-// Strict date filter — keeps only articles whose IST publish date matches selectedDate.
 function filterByDate(articles, selectedDate) {
   if (!selectedDate) return articles;
-  return articles.filter(a => {
-    const d = toISTDateStr(a.publishedAt);
-    return d === selectedDate;
-  });
+  return articles.filter(a => toISTDateStr(a.publishedAt) === selectedDate);
 }
 
-// Today's date in IST as YYYY-MM-DD
-function todayIST() {
-  return toISTDateStr(new Date().toISOString());
+// Smart date filter: exact → ±1 day → closest available → all results
+// Ensures we ALWAYS return something when articles exist
+function smartDateFilter(articles, selectedDate) {
+  if (!selectedDate || !articles.length) return articles;
+
+  // 1. Exact match
+  const exact = articles.filter(a => toISTDateStr(a.publishedAt) === selectedDate);
+  if (exact.length >= 3) return exact;
+
+  // 2. ±1 day window (catches timezone edge cases and near-date results)
+  const sel = new Date(selectedDate + 'T00:00:00Z');
+  const window1 = articles.filter(a => {
+    const d = toISTDateStr(a.publishedAt);
+    if (!d) return false;
+    return Math.abs(new Date(d + 'T00:00:00Z') - sel) <= 86400000;
+  });
+  if (window1.length >= 3) return window1;
+
+  // 3. ±3 day window
+  const window3 = articles.filter(a => {
+    const d = toISTDateStr(a.publishedAt);
+    if (!d) return false;
+    return Math.abs(new Date(d + 'T00:00:00Z') - sel) <= 3 * 86400000;
+  });
+  if (window3.length >= 3) return window3;
+
+  // 4. Return all available articles sorted by proximity to selected date
+  return articles
+    .filter(a => toISTDateStr(a.publishedAt))
+    .sort((a, b) => {
+      const da = Math.abs(new Date(toISTDateStr(a.publishedAt) + 'T00:00:00Z') - sel);
+      const db = Math.abs(new Date(toISTDateStr(b.publishedAt) + 'T00:00:00Z') - sel);
+      return da - db;
+    });
 }
 
 function googleNewsRSS(query, lang = 'en') {
   return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${lang}-IN&gl=IN&ceid=IN:${lang}`;
 }
 
-// ── API: GNews (100 req/day, supports hi/te, has `from` date param) ───────────
+// ── API: GNews ────────────────────────────────────────────────────────────────
 async function fetchFromGNews({ query, language = 'en', country = 'in', max = 20, fromDate } = {}) {
   if (!process.env.GNEWS_API_KEY) return [];
   try {
@@ -182,7 +205,7 @@ async function fetchFromGNews({ query, language = 'en', country = 'in', max = 20
   } catch { return []; }
 }
 
-// ── API: NewsAPI.org (100 req/day, English only, ~1 month history) ────────────
+// ── API: NewsAPI.org ──────────────────────────────────────────────────────────
 async function fetchFromNewsAPI({ query, language = 'en', fromDate } = {}) {
   if (!process.env.NEWS_API_KEY) return [];
   try {
@@ -205,7 +228,7 @@ async function fetchFromNewsAPI({ query, language = 'en', fromDate } = {}) {
   } catch { return []; }
 }
 
-// ── API: The Guardian (500 req/day, English, supports from-date/to-date) ──────
+// ── API: The Guardian ─────────────────────────────────────────────────────────
 async function fetchFromGuardian({ query, pageSize = 20, fromDate } = {}) {
   if (!process.env.GUARDIAN_API_KEY) return [];
   try {
@@ -234,7 +257,7 @@ async function fetchFromGuardian({ query, pageSize = 20, fromDate } = {}) {
   } catch { return []; }
 }
 
-// ── API: MediaStack (500 req/month, supports date param) ─────────────────────
+// ── API: MediaStack ───────────────────────────────────────────────────────────
 async function fetchFromMediaStack({ keywords, languages = 'en', countries = 'in', limit = 20, fromDate } = {}) {
   if (!process.env.MEDIASTACK_API_KEY) return [];
   try {
@@ -261,7 +284,7 @@ async function fetchFromMediaStack({ keywords, languages = 'en', countries = 'in
   } catch { return []; }
 }
 
-// ── API: NewsCatcher (100 req/day, supports from param) ──────────────────────
+// ── API: NewsCatcher ──────────────────────────────────────────────────────────
 async function fetchFromNewsCatcher({ query, language = 'en', countries = 'IN', pageSize = 20, fromDate } = {}) {
   if (!process.env.NEWSCATCHER_API_KEY) return [];
   try {
@@ -289,9 +312,24 @@ async function fetchFromNewsCatcher({ query, language = 'en', countries = 'IN', 
   } catch { return []; }
 }
 
-// ── RSS: Direct newspaper feed ───────────────────────────────────────────────
-// For today: return all items. For a past date: filter by that date.
-async function fetchFromRSS(newspaper, area, fromDate) {
+// ── RSS: Google News RSS (all languages including English) ────────────────────
+async function fetchFromGoogleNewsRSS(query, language) {
+  const lang = GOOGLE_LANG[language] || 'en';
+  try {
+    const feed = await rssParser.parseURL(googleNewsRSS(query, lang));
+    return feed.items.slice(0, 50).map(item => ({
+      title: item.title?.replace(/ - [^-]+$/, '') || '',
+      description: item.contentSnippet || item.summary || '',
+      url: item.link || '',
+      urlToImage: null,
+      publishedAt: item.pubDate || item.isoDate || '',
+      source: { name: item.source?.title || 'Google News' },
+    }));
+  } catch { return []; }
+}
+
+// ── RSS: Direct newspaper feed ────────────────────────────────────────────────
+async function fetchFromRSS(newspaper, area) {
   const url = NEWSPAPER_RSS[newspaper];
   if (!url) return [];
   try {
@@ -304,12 +342,6 @@ async function fetchFromRSS(newspaper, area, fromDate) {
       publishedAt: item.pubDate || item.isoDate || '',
       source: { name: NEWSPAPER_NAME_MAP[newspaper] || newspaper },
     }));
-    // Apply date filter if requested
-    if (fromDate) {
-      const dated = items.filter(a => toISTDateStr(a.publishedAt) === fromDate);
-      if (dated.length > 0) items = dated;
-      else return []; // RSS has no items for that date
-    }
     const areaName = area && AREA_QUERY_MAP[area];
     if (areaName && area !== 'national' && area !== 'international') {
       const terms = [areaName.toLowerCase(), ...(AREA_NATIVE_NAMES[area] || [])];
@@ -319,33 +351,7 @@ async function fetchFromRSS(newspaper, area, fromDate) {
       });
       if (filtered.length > 0) items = filtered;
     }
-    return items.slice(0, 20);
-  } catch { return []; }
-}
-
-// ── RSS: Google News RSS ─────────────────────────────────────────────────────
-async function fetchFromGoogleNews(newspaper, area, language, fromDate) {
-  const paperQuery = NEWSPAPER_GOOGLE_QUERY[newspaper];
-  if (!paperQuery) return [];
-  const areaName = area && area !== 'national' && area !== 'international' && AREA_QUERY_MAP[area]
-    ? ` ${AREA_QUERY_MAP[area]}` : '';
-  const lang = GOOGLE_LANG[language] || 'en';
-  try {
-    const feed = await rssParser.parseURL(googleNewsRSS(`${paperQuery}${areaName}`, lang));
-    let items = feed.items.slice(0, 50).map(item => ({
-      title: item.title?.replace(/ - [^-]+$/, '') || '',
-      description: item.contentSnippet || item.summary || '',
-      url: item.link || '',
-      urlToImage: null,
-      publishedAt: item.pubDate || item.isoDate || '',
-      source: { name: NEWSPAPER_NAME_MAP[newspaper] || paperQuery },
-    }));
-    if (fromDate) {
-      const dated = items.filter(a => toISTDateStr(a.publishedAt) === fromDate);
-      if (dated.length > 0) items = dated;
-      else return [];
-    }
-    return items.slice(0, 20);
+    return items.slice(0, 30);
   } catch { return []; }
 }
 
@@ -360,7 +366,6 @@ function deduplicateArticles(articles) {
   });
 }
 
-// Score article relevance: prefer items with image, description, and matching date
 function scoreArticle(a, fromDate) {
   let score = 0;
   if (a.urlToImage) score += 2;
@@ -381,11 +386,13 @@ async function fetchByNewspaper(newspaper, area, language, fromDate) {
   const areaName  = AREA_QUERY_MAP[area] || 'India';
   const query     = `${paperName} ${areaName}`;
   const msLang    = language === 'te' ? 'te' : language === 'hi' ? 'hi' : 'en';
+  const paperGoogleQuery = NEWSPAPER_GOOGLE_QUERY[newspaper]
+    ? `${NEWSPAPER_GOOGLE_QUERY[newspaper]} ${areaName !== 'India' ? areaName : ''}`.trim()
+    : query;
 
-  // Run all sources in parallel
-  const [rss, google, gnews, newsapi, guardian, newscatcher, mediastack] = await Promise.all([
-    fetchFromRSS(newspaper, area, fromDate),
-    fetchFromGoogleNews(newspaper, area, language, fromDate),
+  const [rss, googleRSS, gnews, newsapi, guardian, newscatcher, mediastack] = await Promise.all([
+    fetchFromRSS(newspaper, area),
+    fetchFromGoogleNewsRSS(paperGoogleQuery, language),
     fetchFromGNews({ query, language, max: 20, fromDate }),
     fetchFromNewsAPI({ query, language, fromDate }),
     language === 'en' ? fetchFromGuardian({ query, pageSize: 20, fromDate }) : Promise.resolve([]),
@@ -393,14 +400,9 @@ async function fetchByNewspaper(newspaper, area, language, fromDate) {
     fetchFromMediaStack({ keywords: query, languages: msLang, limit: 20, fromDate }),
   ]);
 
-  // Strictly filter each batch by date before merging
-  const filter = arr => fromDate ? filterByDate(arr, fromDate) : arr;
-  const merged = mergeAndRank(
-    [filter(rss), filter(google), filter(gnews), filter(newsapi),
-     filter(guardian), filter(newscatcher), filter(mediastack)],
-    fromDate
-  );
-  return merged.slice(0, 30);
+  const merged = mergeAndRank([rss, googleRSS, gnews, newsapi, guardian, newscatcher, mediastack], fromDate);
+  // smartDateFilter always returns something — never empty
+  return smartDateFilter(merged, fromDate).slice(0, 30);
 }
 
 // ── Aggregation: area + language + keywords — ALL APIs in parallel ────────────
@@ -411,22 +413,8 @@ async function fetchByAreaAndLanguage(area, language, keywords, fromDate) {
     : areaName;
   const msLang = language === 'te' ? 'te' : language === 'hi' ? 'hi' : 'en';
 
-  // Google News RSS for regional languages
-  const googleRSSPromise = (language === 'hi' || language === 'te')
-    ? rssParser.parseURL(googleNewsRSS(query, GOOGLE_LANG[language]))
-        .then(feed => feed.items.slice(0, 50).map(item => ({
-          title: item.title?.replace(/ - [^-]+$/, '') || '',
-          description: item.contentSnippet || item.summary || '',
-          url: item.link || '',
-          urlToImage: null,
-          publishedAt: item.pubDate || item.isoDate || '',
-          source: { name: item.source?.title || 'Google News' },
-        })))
-        .catch(() => [])
-    : Promise.resolve([]);
-
   const [googleRSS, gnews, newsapi, guardian, newscatcher, mediastack] = await Promise.all([
-    googleRSSPromise,
+    fetchFromGoogleNewsRSS(query, language),
     fetchFromGNews({ query, language: msLang, max: 20, fromDate }),
     fetchFromNewsAPI({ query, language, fromDate }),
     language === 'en' ? fetchFromGuardian({ query, pageSize: 20, fromDate }) : Promise.resolve([]),
@@ -434,14 +422,11 @@ async function fetchByAreaAndLanguage(area, language, keywords, fromDate) {
     fetchFromMediaStack({ keywords: query, languages: msLang, limit: 20, fromDate }),
   ]);
 
-  const filter = arr => fromDate ? filterByDate(arr, fromDate) : arr;
-  const merged = mergeAndRank(
-    [filter(googleRSS), filter(gnews), filter(newsapi),
-     filter(guardian), filter(newscatcher), filter(mediastack)],
-    fromDate
-  );
+  const merged = mergeAndRank([googleRSS, gnews, newsapi, guardian, newscatcher, mediastack], fromDate);
 
-  if (merged.length > 0) return merged.slice(0, 30);
+  // smartDateFilter always returns something
+  const results = smartDateFilter(merged, fromDate);
+  if (results.length > 0) return results.slice(0, 30);
 
   // Last resort: Puppeteer scrape (live only)
   if (!fromDate) return scrapeGoogleNews(query, 20);
@@ -457,16 +442,7 @@ async function fetchRecommendations(keywords, area, language) {
 
   const [gnews, googleRSS, newscatcher, guardian, newsapi] = await Promise.all([
     fetchFromGNews({ query, language: msLang, max: 10 }),
-    rssParser.parseURL(googleNewsRSS(query, GOOGLE_LANG[language] || 'en'))
-      .then(feed => feed.items.slice(0, 10).map(item => ({
-        title: item.title?.replace(/ - [^-]+$/, '') || '',
-        description: item.contentSnippet || '',
-        url: item.link || '',
-        urlToImage: null,
-        publishedAt: item.pubDate || item.isoDate || '',
-        source: { name: item.source?.title || 'Google News' },
-      })))
-      .catch(() => []),
+    fetchFromGoogleNewsRSS(query, language),
     fetchFromNewsCatcher({ query, language, pageSize: 10 }),
     language === 'en' ? fetchFromGuardian({ query, pageSize: 10 }) : Promise.resolve([]),
     fetchFromNewsAPI({ query, language }),

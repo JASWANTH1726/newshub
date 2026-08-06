@@ -123,10 +123,7 @@ export default function Dashboard() {
                 ) : (
                   <div className="no-results">
                     <span className="icon">🔍</span>
-                    <p>{appliedFilters.date
-                      ? `No digital articles found for ${appliedFilters.date}. Try a different date or add more keywords.`
-                      : 'No articles found. Try different keywords or filters.'
-                    }</p>
+                    <p>No articles found. Try different keywords or filters.</p>
                   </div>
                 )}
 
