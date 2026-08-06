@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import styles from './EpaperSection.module.css';
@@ -134,24 +134,33 @@ export default function EpaperSection({ epaperFilters }) {
   const prefLang = langMap[user?.preferences?.newsLanguage] || 'Telugu';
 
   const [activeLang, setActiveLang] = useState(prefLang);
+  // Use filter date if provided, otherwise today
   const [date, setDate] = useState(todayStr());
   const [search, setSearch] = useState('');
   const [selectedPaper, setSelectedPaper] = useState(null);
 
-  useEffect(() => {
-    if (!epaperFilters) return;
-    if (epaperFilters.language) setActiveLang(epaperFilters.language);
-    if (epaperFilters.date)     setDate(epaperFilters.date);
-    if (epaperFilters.search !== undefined) setSearch(epaperFilters.search);
+  // Sync from filter panel — use individual primitive values as deps to avoid
+  // firing on every render when parent passes a new object reference
+  const filterDate     = epaperFilters?.date     || '';
+  const filterLanguage = epaperFilters?.language  || '';
+  const filterSearch   = epaperFilters?.search    || '';
 
-    // If specific newspaper selected, open viewer directly
-    if (epaperFilters.search) {
-      const lang = epaperFilters.language || activeLang;
-      const papers = EPAPERS[lang] || [];
-      const exact = papers.find(p => p.name.toLowerCase() === epaperFilters.search.toLowerCase());
+  useEffect(() => {
+    if (filterLanguage) setActiveLang(filterLanguage);
+  }, [filterLanguage]);
+
+  useEffect(() => {
+    if (filterDate) setDate(filterDate);
+  }, [filterDate]);
+
+  useEffect(() => {
+    setSearch(filterSearch);
+    if (filterSearch && filterLanguage) {
+      const papers = EPAPERS[filterLanguage] || [];
+      const exact = papers.find(p => p.name.toLowerCase() === filterSearch.toLowerCase());
       if (exact) setSelectedPaper(exact);
     }
-  }, [epaperFilters]);
+  }, [filterSearch, filterLanguage]);
 
   const papers = EPAPERS[activeLang] || [];
   const filtered = search.trim()

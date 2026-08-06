@@ -331,10 +331,16 @@ async function fetchFromGoogleNews(newspaper, area, language, fromDate) {
 }
 
 // ── Date filter helper ────────────────────────────────────────────────────────
+// Uses a ±1 day buffer to handle timezone offsets (e.g. IST articles stored as
+// previous UTC day). Filters to the calendar day in any timezone.
 function filterByDate(articles, fromDate) {
   if (!fromDate) return articles;
+  // Start = midnight of the day before (catches IST articles stored as prev UTC day)
+  // End   = end of the day after (catches any forward offset)
   const from = new Date(fromDate + 'T00:00:00Z');
-  const to   = new Date(fromDate + 'T23:59:59.999Z');
+  from.setUTCDate(from.getUTCDate() - 1);          // -1 day buffer
+  const to = new Date(fromDate + 'T23:59:59.999Z');
+  to.setUTCDate(to.getUTCDate() + 1);              // +1 day buffer
   return articles.filter(a => {
     if (!a.publishedAt) return false;
     const published = new Date(a.publishedAt);
