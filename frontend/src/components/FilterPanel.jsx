@@ -178,8 +178,7 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
     language: pref.newsLanguage || 'en',
     area: pref.area || 'national',
     newspaper: pref.newspaper || '',
-    fromDate: '',
-    toDate: '',
+    date: '',
     keywords: pref.keywords || '',
   });
 
@@ -217,9 +216,7 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
   const handleSubmit = e => {
     e.preventDefault();
     const epaperSearch = filters.newspaper ? NEWSPAPER_LABEL_MAP[filters.newspaper] || '' : '';
-    // Use toDate as epaper date if set, otherwise fromDate, otherwise today
-    const epaperDate = filters.toDate || filters.fromDate || '';
-    onFilter({ ...filters, epaperLang: LANG_LABEL[filters.language], epaperSearch, epaperDate });
+    onFilter({ ...filters, epaperLang: LANG_LABEL[filters.language], epaperSearch });
     setOpen(false);
   };
 
@@ -228,12 +225,11 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
       language: pref.newsLanguage || 'en',
       area: pref.area || 'national',
       newspaper: pref.newspaper || '',
-      fromDate: '',
-      toDate: '',
+      date: '',
       keywords: pref.keywords || '',
     };
     setFilters(reset);
-    onFilter({ ...reset, epaperLang: LANG_LABEL[reset.language], epaperSearch: '', epaperDate: '' });
+    onFilter({ ...reset, epaperLang: LANG_LABEL[reset.language], epaperSearch: '' });
   };
 
   return (
@@ -292,12 +288,8 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
                 </select>
               </div>
               <div className={styles.field}>
-                <label>📅 From Date</label>
-                <input type="date" value={filters.fromDate} max={todayStr()} onChange={e => setFilters(f => ({ ...f, fromDate: e.target.value }))} />
-              </div>
-              <div className={styles.field}>
-                <label>📅 To Date</label>
-                <input type="date" value={filters.toDate} max={todayStr()} min={filters.fromDate || undefined} onChange={e => setFilters(f => ({ ...f, toDate: e.target.value }))} />
+                <label>📅 Date</label>
+                <input type="date" value={filters.date} max={todayStr()} onChange={e => setFilters(f => ({ ...f, date: e.target.value }))} />
               </div>
             </div>
 

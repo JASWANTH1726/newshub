@@ -33,7 +33,7 @@ export default function Dashboard() {
         area: merged.area,
         newspaper: merged.newspaper,
         keywords: merged.keywords,
-        ...(merged.fromDate ? { fromDate: merged.fromDate } : {}),
+        ...(merged.date ? { fromDate: merged.date } : {}),
         ...(merged.query ? { query: merged.query } : {}),
       });
       const [feedRes, recRes] = await Promise.all([
@@ -41,16 +41,11 @@ export default function Dashboard() {
         api.get('/api/news/recommendations'),
       ]);
       let arts = feedRes.data.articles || [];
-      // Client-side date range filter
-      if (merged.fromDate || merged.toDate) {
-        const from = merged.fromDate ? new Date(merged.fromDate) : null;
-        const to   = merged.toDate   ? new Date(merged.toDate + 'T23:59:59') : null;
+      // Filter to only articles from the selected date
+      if (merged.date) {
         arts = arts.filter(a => {
           if (!a.publishedAt) return true;
-          const d = new Date(a.publishedAt);
-          if (from && d < from) return false;
-          if (to   && d > to)   return false;
-          return true;
+          return a.publishedAt.slice(0, 10) === merged.date;
         });
       }
       setArticles(arts);
@@ -84,7 +79,7 @@ export default function Dashboard() {
       language: filters.epaperLang || 'Telugu',
       search: filters.epaperSearch || '',
       freeOnly: false,
-      date: filters.epaperDate || '',
+      date: filters.date || '',
     });
     if (mode === 'news') fetchNews(filters);
   };
