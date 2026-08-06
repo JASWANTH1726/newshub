@@ -179,6 +179,7 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
     area: pref.area || 'national',
     newspaper: pref.newspaper || '',
     fromDate: '',
+    toDate: '',
     keywords: pref.keywords || '',
   });
 
@@ -211,11 +212,14 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
     if (e.key === ',')     { e.preventDefault(); addKeyword(keywordInput); }
   };
 
+  const todayStr = () => new Date().toISOString().split('T')[0];
+
   const handleSubmit = e => {
     e.preventDefault();
-    // For epaper mode: pass language + newspaper name as search + freeOnly from keywords
     const epaperSearch = filters.newspaper ? NEWSPAPER_LABEL_MAP[filters.newspaper] || '' : '';
-    onFilter({ ...filters, epaperLang: LANG_LABEL[filters.language], epaperSearch });
+    // Use toDate as epaper date if set, otherwise fromDate, otherwise today
+    const epaperDate = filters.toDate || filters.fromDate || '';
+    onFilter({ ...filters, epaperLang: LANG_LABEL[filters.language], epaperSearch, epaperDate });
     setOpen(false);
   };
 
@@ -225,10 +229,11 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
       area: pref.area || 'national',
       newspaper: pref.newspaper || '',
       fromDate: '',
+      toDate: '',
       keywords: pref.keywords || '',
     };
     setFilters(reset);
-    onFilter({ ...reset, epaperLang: LANG_LABEL[reset.language], epaperSearch: '' });
+    onFilter({ ...reset, epaperLang: LANG_LABEL[reset.language], epaperSearch: '', epaperDate: '' });
   };
 
   return (
@@ -288,7 +293,11 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
               </div>
               <div className={styles.field}>
                 <label>📅 From Date</label>
-                <input type="date" value={filters.fromDate} onChange={e => setFilters(f => ({ ...f, fromDate: e.target.value }))} />
+                <input type="date" value={filters.fromDate} max={todayStr()} onChange={e => setFilters(f => ({ ...f, fromDate: e.target.value }))} />
+              </div>
+              <div className={styles.field}>
+                <label>📅 To Date</label>
+                <input type="date" value={filters.toDate} max={todayStr()} min={filters.fromDate || undefined} onChange={e => setFilters(f => ({ ...f, toDate: e.target.value }))} />
               </div>
             </div>
 

@@ -15,7 +15,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [activeNewspaper, setActiveNewspaper] = useState('');
-  const [epaperFilters, setEpaperFilters] = useState({ language: 'Telugu', search: '', freeOnly: false });
+  const [epaperFilters, setEpaperFilters] = useState({ language: 'Telugu', search: '', freeOnly: false, date: '' });
 
   const fetchNews = async (filters = {}) => {
     setLoading(true);
@@ -28,12 +28,32 @@ export default function Dashboard() {
         keywords: pref.keywords || '',
         ...filters,
       };
-      const params = new URLSearchParams(merged);
+      const params = new URLSearchParams({
+        language: merged.language,
+        area: merged.area,
+        newspaper: merged.newspaper,
+        keywords: merged.keywords,
+        ...(merged.fromDate ? { fromDate: merged.fromDate } : {}),
+        ...(merged.query ? { query: merged.query } : {}),
+      });
       const [feedRes, recRes] = await Promise.all([
         api.get(`/api/news/feed?${params}`),
         api.get('/api/news/recommendations'),
       ]);
-      setArticles(feedRes.data.articles || []);
+      let arts = feedRes.data.articles || [];
+      // Client-side date range filter
+      if (merged.fromDate || merged.toDate) {
+        const from = merged.fromDate ? new Date(merged.fromDate) : null;
+        const to   = merged.toDate   ? new Date(merged.toDate + 'T23:59:59') : null;
+        arts = arts.filter(a => {
+          if (!a.publishedAt) return true;
+          const d = new Date(a.publishedAt);
+          if (from && d < from) return false;
+          if (to   && d > to)   return false;
+          return true;
+        });
+      }
+      setArticles(arts);
       setActiveNewspaper(feedRes.data.activeNewspaper || '');
       setRecommendations(recRes.data.articles || []);
     } catch (err) {
@@ -60,11 +80,11 @@ export default function Dashboard() {
   };
 
   const handleFilter = filters => {
-    // Update epaper filters from unified filter
     setEpaperFilters({
       language: filters.epaperLang || 'Telugu',
       search: filters.epaperSearch || '',
       freeOnly: false,
+      date: filters.epaperDate || '',
     });
     if (mode === 'news') fetchNews(filters);
   };
@@ -108,7 +128,16 @@ export default function Dashboard() {
                 {activeNewspaper && (
                   <p className={styles.activeSource}>📰 {activeNewspaper}</p>
                 )}
-                <div className="section-heading">🌐 Digital News</div>
+                <div className="section-heading">
+                  🌐 Digital News
+                  {articles.length > 0 && (
+                    <span style={{ fontSize: '0.78rem', fontWeight: 400, marginLeft: 10, color: '#94a3b8' }}>
+                      {articles[0]?.publishedAt
+                        ? `— ${articles.length} articles`
+                        : ''}
+                    </span>
+                  )}
+                </div>
                 {articles.length > 0 ? (
                   <div className="news-grid">
                     {articles.map((article, i) => (

@@ -141,7 +141,7 @@ export default function EpaperSection({ epaperFilters }) {
   useEffect(() => {
     if (!epaperFilters) return;
     if (epaperFilters.language) setActiveLang(epaperFilters.language);
-    if (epaperFilters.date) setDate(epaperFilters.date);
+    if (epaperFilters.date)     setDate(epaperFilters.date);
     if (epaperFilters.search !== undefined) setSearch(epaperFilters.search);
 
     // If specific newspaper selected, open viewer directly
@@ -164,7 +164,12 @@ export default function EpaperSection({ epaperFilters }) {
       <div className={styles.hero}>
         <div className={styles.heroText}>
           <h2>📄 E-Papers</h2>
-          <p>Read today's newspaper editions — fetched from free public sources</p>
+          <p>
+            {date === todayStr()
+              ? "Today's newspaper editions — fetched from free public sources"
+              : `Archive edition: ${new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}`
+            }
+          </p>
         </div>
         <div className={styles.heroControls}>
           <div className={styles.dateRow}>
