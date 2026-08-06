@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import styles from './FilterPanel.module.css';
 
@@ -168,93 +168,87 @@ const KEYWORD_SUGGESTIONS = {
   'Weather':    ['Weather', 'Flood', 'Cyclone', 'Rain', 'Drought', 'Earthquake'],
 };
 
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
+
 export default function FilterPanel({ onFilter, mode, onModeChange }) {
   const { user } = useAuth();
   const pref = user?.preferences || {};
   const [open, setOpen] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
   const [activeSuggestionGroup, setActiveSuggestionGroup] = useState(null);
-  const [filters, setFilters] = useState({
-    language: pref.newsLanguage || 'en',
-    area: pref.area || 'national',
-    newspaper: pref.newspaper || '',
-    date: '',
-    keywords: pref.keywords || '',
-  });
+
+  // Keep each field in its own state so language change never touches date
+  const [language, setLanguage] = useState(pref.newsLanguage || 'en');
+  const [area, setArea]         = useState(pref.area || 'national');
+  const [newspaper, setNewspaper] = useState(pref.newspaper || '');
+  const [date, setDate]         = useState('');
+  const [keywords, setKeywords] = useState(pref.keywords || '');
+
+  // When language changes, reset area/newspaper but NOT date
+  const prevLang = useRef(language);
+  useEffect(() => {
+    if (prevLang.current !== language) {
+      setArea('national');
+      setNewspaper('');
+      prevLang.current = language;
+    }
+  }, [language]);
 
   useEffect(() => {
-    setFilters(f => ({ ...f, area: 'national', newspaper: '' }));
-  }, [filters.language]);
-
-  useEffect(() => {
-    if (pref.keywords) setFilters(f => ({ ...f, keywords: pref.keywords }));
+    if (pref.keywords) setKeywords(pref.keywords);
   }, [pref.keywords]);
 
-  const areas = AREAS_BY_LANG[filters.language] || AREAS_BY_LANG.en;
-  const newspapers = NEWSPAPERS_BY_LANG[filters.language] || NEWSPAPERS_BY_LANG.en;
-  const keywordList = filters.keywords
-    ? filters.keywords.split(',').map(k => k.trim()).filter(Boolean)
+  const areas     = AREAS_BY_LANG[language]     || AREAS_BY_LANG.en;
+  const newspapers = NEWSPAPERS_BY_LANG[language] || NEWSPAPERS_BY_LANG.en;
+  const keywordList = keywords
+    ? keywords.split(',').map(k => k.trim()).filter(Boolean)
     : [];
 
   const addKeyword = kw => {
     const trimmed = kw.trim();
     if (!trimmed || keywordList.includes(trimmed)) return;
-    setFilters(f => ({ ...f, keywords: [...keywordList, trimmed].join(', ') }));
+    setKeywords([...keywordList, trimmed].join(', '));
     setKeywordInput('');
   };
 
   const removeKeyword = kw =>
-    setFilters(f => ({ ...f, keywords: keywordList.filter(k => k !== kw).join(', ') }));
+    setKeywords(keywordList.filter(k => k !== kw).join(', '));
 
   const handleKeywordKeyDown = e => {
     if (e.key === 'Enter') { e.preventDefault(); addKeyword(keywordInput); }
     if (e.key === ',')     { e.preventDefault(); addKeyword(keywordInput); }
   };
 
-  const todayStr = () => new Date().toISOString().split('T')[0];
-
   const handleSubmit = e => {
     e.preventDefault();
-    const epaperSearch = filters.newspaper ? NEWSPAPER_LABEL_MAP[filters.newspaper] || '' : '';
-    onFilter({ ...filters, epaperLang: LANG_LABEL[filters.language], epaperSearch });
+    const epaperSearch = newspaper ? NEWSPAPER_LABEL_MAP[newspaper] || '' : '';
+    onFilter({ language, area, newspaper, date, keywords, epaperLang: LANG_LABEL[language], epaperSearch });
     setOpen(false);
   };
 
   const handleReset = () => {
-    const reset = {
-      language: pref.newsLanguage || 'en',
-      area: pref.area || 'national',
-      newspaper: pref.newspaper || '',
-      date: '',
-      keywords: pref.keywords || '',
-    };
-    setFilters(reset);
-    onFilter({ ...reset, epaperLang: LANG_LABEL[reset.language], epaperSearch: '' });
+    const lang = pref.newsLanguage || 'en';
+    setLanguage(lang);
+    setArea(pref.area || 'national');
+    setNewspaper(pref.newspaper || '');
+    setDate('');
+    setKeywords(pref.keywords || '');
+    onFilter({ language: lang, area: pref.area || 'national', newspaper: pref.newspaper || '', date: '', keywords: pref.keywords || '', epaperLang: LANG_LABEL[lang], epaperSearch: '' });
   };
 
   return (
     <div className={styles.panel}>
-      {/* Mode toggle + filter toggle */}
       <div className={styles.modeBar}>
-        <button
-          type="button"
-          className={`${styles.modeBtn} ${mode === 'epaper' ? styles.modeActive : ''}`}
-          onClick={() => onModeChange('epaper')}
-        >
+        <button type="button" className={`${styles.modeBtn} ${mode === 'epaper' ? styles.modeActive : ''}`} onClick={() => onModeChange('epaper')}>
           📄 E-Paper
         </button>
-        <button
-          type="button"
-          className={`${styles.modeBtn} ${mode === 'news' ? styles.modeActive : ''}`}
-          onClick={() => onModeChange('news')}
-        >
+        <button type="button" className={`${styles.modeBtn} ${mode === 'news' ? styles.modeActive : ''}`} onClick={() => onModeChange('news')}>
           🌐 Digital News
         </button>
-        <button
-          type="button"
-          className={styles.filterToggleBtn}
-          onClick={() => setOpen(o => !o)}
-        >
+        <button type="button" className={styles.filterToggleBtn} onClick={() => setOpen(o => !o)}>
           🎛️ Filters {open ? '▲' : '▼'}
         </button>
       </div>
@@ -265,13 +259,13 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
             <div className={styles.grid}>
               <div className={styles.field}>
                 <label>📰 Language</label>
-                <select value={filters.language} onChange={e => setFilters(f => ({ ...f, language: e.target.value }))}>
+                <select value={language} onChange={e => setLanguage(e.target.value)}>
                   {LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
                 </select>
               </div>
               <div className={styles.field}>
                 <label>📍 Area</label>
-                <select value={filters.area} onChange={e => setFilters(f => ({ ...f, area: e.target.value }))}>
+                <select value={area} onChange={e => setArea(e.target.value)}>
                   {areas.map((a, i) => a.disabled
                     ? <option key={i} disabled>{a.label}</option>
                     : <option key={a.value} value={a.value}>{a.label}</option>
@@ -280,7 +274,7 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
               </div>
               <div className={styles.field}>
                 <label>🗞️ Newspaper</label>
-                <select value={filters.newspaper} onChange={e => setFilters(f => ({ ...f, newspaper: e.target.value }))}>
+                <select value={newspaper} onChange={e => setNewspaper(e.target.value)}>
                   {newspapers.map((n, i) => n.disabled
                     ? <option key={i} disabled>{n.label}</option>
                     : <option key={n.value} value={n.value}>{n.label}</option>
@@ -289,11 +283,15 @@ export default function FilterPanel({ onFilter, mode, onModeChange }) {
               </div>
               <div className={styles.field}>
                 <label>📅 Date</label>
-                <input type="date" value={filters.date} max={todayStr()} onChange={e => setFilters(f => ({ ...f, date: e.target.value }))} />
+                <input
+                  type="date"
+                  value={date}
+                  max={todayStr()}
+                  onChange={e => setDate(e.target.value)}
+                />
               </div>
             </div>
 
-            {/* Keyword filter */}
             <div className={styles.keywordSection}>
               <label>🔖 Keywords</label>
               <div className={styles.keywordInputRow}>

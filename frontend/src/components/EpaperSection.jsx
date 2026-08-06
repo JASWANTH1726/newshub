@@ -134,33 +134,26 @@ export default function EpaperSection({ epaperFilters }) {
   const prefLang = langMap[user?.preferences?.newsLanguage] || 'Telugu';
 
   const [activeLang, setActiveLang] = useState(prefLang);
-  // Use filter date if provided, otherwise today
   const [date, setDate] = useState(todayStr());
   const [search, setSearch] = useState('');
   const [selectedPaper, setSelectedPaper] = useState(null);
 
-  // Sync from filter panel — use individual primitive values as deps to avoid
-  // firing on every render when parent passes a new object reference
+  // Sync filter panel values — extract primitives to avoid object-reference re-fires
   const filterDate     = epaperFilters?.date     || '';
   const filterLanguage = epaperFilters?.language  || '';
   const filterSearch   = epaperFilters?.search    || '';
 
-  useEffect(() => {
-    if (filterLanguage) setActiveLang(filterLanguage);
-  }, [filterLanguage]);
-
-  useEffect(() => {
-    if (filterDate) setDate(filterDate);
-  }, [filterDate]);
-
+  useEffect(() => { if (filterLanguage) setActiveLang(filterLanguage); }, [filterLanguage]);
+  useEffect(() => { if (filterDate)     setDate(filterDate);           }, [filterDate]);
   useEffect(() => {
     setSearch(filterSearch);
-    if (filterSearch && filterLanguage) {
-      const papers = EPAPERS[filterLanguage] || [];
+    if (filterSearch) {
+      const lang = filterLanguage || activeLang;
+      const papers = EPAPERS[lang] || [];
       const exact = papers.find(p => p.name.toLowerCase() === filterSearch.toLowerCase());
       if (exact) setSelectedPaper(exact);
     }
-  }, [filterSearch, filterLanguage]);
+  }, [filterSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const papers = EPAPERS[activeLang] || [];
   const filtered = search.trim()

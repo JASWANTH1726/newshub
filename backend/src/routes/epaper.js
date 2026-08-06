@@ -76,12 +76,17 @@ const PAPER_LANGUAGE = {
 
 // ── Helper: parse date ────────────────────────────────────────────────────────
 function parseDateParts(date) {
+  // Parse YYYY-MM-DD as local date parts to avoid UTC midnight shifting the day
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [yyyy, mm, dd] = date.split('-');
+    return { dd, mm, yyyy, iso: date };
+  }
   const d = date ? new Date(date) : new Date();
   return {
     dd:   String(d.getDate()).padStart(2, '0'),
     mm:   String(d.getMonth() + 1).padStart(2, '0'),
     yyyy: String(d.getFullYear()),
-    iso:  d.toISOString().split('T')[0],
+    iso:  `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`,
   };
 }
 
