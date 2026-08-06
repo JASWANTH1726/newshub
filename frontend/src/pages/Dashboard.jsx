@@ -65,11 +65,11 @@ export default function Dashboard() {
   const handleFilter = filters => {
     filtersRef.current = filters;
     setAppliedFilters(filters);
-    // Update epaper state from filter
-    setEpaperDate(filters.date || '');
-    setEpaperLang(filters.epaperLang || 'Telugu');
-    setEpaperSearch(filters.epaperSearch || '');
-    // Always fetch news so results are ready when user switches mode
+    // Sync epaper date/lang/search from filter panel
+    if (filters.date !== undefined) setEpaperDate(filters.date || '');
+    if (filters.epaperLang)         setEpaperLang(filters.epaperLang);
+    if (filters.epaperSearch !== undefined) setEpaperSearch(filters.epaperSearch || '');
+    // Fetch digital news with the new filters
     fetchNews(filters);
   };
 
@@ -103,7 +103,7 @@ export default function Dashboard() {
             {loading ? (
               <div className={styles.loading}>
                 <span className={styles.spinner} />
-                Loading articles...
+                Loading articles from all sources...
               </div>
             ) : (
               <>
@@ -124,11 +124,25 @@ export default function Dashboard() {
                   <div className="no-results">
                     <span className="icon">🔍</span>
                     <p>{appliedFilters.date
-                      ? `No articles found for ${appliedFilters.date}. NewsAPI free tier supports ~1 month of English history.`
+                      ? `No digital articles found for ${appliedFilters.date}. Try a different date or add more keywords.`
                       : 'No articles found. Try different keywords or filters.'
                     }</p>
                   </div>
                 )}
+
+                {/* Show E-Paper section below digital news when a date is selected */}
+                {appliedFilters.date && (
+                  <>
+                    <div className="section-heading" style={{ marginTop: '2rem' }}>
+                      📄 E-Paper Editions
+                      <span style={{ fontSize: '0.78rem', fontWeight: 400, marginLeft: 10, color: '#f59e0b' }}>
+                        📅 {appliedFilters.date}
+                      </span>
+                    </div>
+                    <EpaperSection epaperFilters={epaperFilters} />
+                  </>
+                )}
+
                 {recommendations.length > 0 && (
                   <>
                     <div className="section-heading">⭐ Recommended For You</div>

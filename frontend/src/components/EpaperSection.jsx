@@ -46,7 +46,12 @@ const LANG_META = {
   English: { icon: '🇬🇧' },
 };
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => {
+  // Use IST (UTC+5:30) to avoid UTC midnight shifting the date for Indian users
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
+};
 
 function PaperViewer({ paper, date, onClose }) {
   const [images, setImages] = useState([]);

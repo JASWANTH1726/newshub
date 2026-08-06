@@ -1,14 +1,20 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
+const newsService = require('../services/newsService');
 const {
   fetchFromNewsAPI,
   fetchFromGNews,
+  fetchFromGuardian,
+  fetchFromNewsCatcher,
+  fetchFromMediaStack,
   fetchByNewspaper,
   fetchByAreaAndLanguage,
   fetchRecommendations,
+  filterByDate,
+  deduplicateArticles,
   AREA_QUERY_MAP,
   NEWSPAPER_NAME_MAP,
-} = require('../services/newsService');
+} = newsService;
 
 // GET /api/news/feed
 router.get('/feed', auth, async (req, res) => {
@@ -30,14 +36,23 @@ router.get('/feed', auth, async (req, res) => {
     let articles = [];
 
     if (query && query.trim()) {
-      // Search: try GNews first (supports hi/te), then NewsAPI
+      // Search: query ALL APIs in parallel, merge and deduplicate
       const areaName = AREA_QUERY_MAP[area] || 'India';
       const searchQuery = `${query.trim()} ${areaName}`;
+      const msLang = language === 'te' ? 'te' : language === 'hi' ? 'hi' : 'en';
 
-      articles = await fetchFromGNews({ query: searchQuery, language, max: 20 });
-      if (!articles.length) {
-        articles = await fetchFromNewsAPI({ query: searchQuery, language, fromDate });
-      }
+      const [gnews, newsapi, guardian, newscatcher, mediastack] = await Promise.all([
+        fetchFromGNews({ query: searchQuery, language, max: 20, fromDate }),
+        fetchFromNewsAPI({ query: searchQuery, language, fromDate }),
+        language === 'en' ? fetchFromGuardian({ query: searchQuery, pageSize: 20, fromDate }) : Promise.resolve([]),
+        fetchFromNewsCatcher({ query: searchQuery, language, pageSize: 20, fromDate }),
+        fetchFromMediaStack({ keywords: searchQuery, languages: msLang, limit: 20, fromDate }),
+      ]);
+
+      const filter = arr => fromDate ? filterByDate(arr, fromDate) : arr;
+      articles = deduplicateArticles(
+        [].concat(filter(gnews), filter(newsapi), filter(guardian), filter(newscatcher), filter(mediastack))
+      ).slice(0, 30);
     } else if (newspaper) {
       // Specific newspaper: RSS → Google News RSS → GNews → NewsAPI
       articles = await fetchByNewspaper(newspaper, area, language, fromDate);

@@ -169,8 +169,9 @@ const KEYWORD_SUGGESTIONS = {
 };
 
 const todayStr = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const now = new Date();
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
 };
 
 export default function FilterPanel({ onFilter, mode, onModeChange }) {
